@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"os"
+	"sync"
 )
 
 // Storage provides an interface to interact with "persistent" storage.
@@ -15,6 +16,7 @@ type Storage interface {
 }
 
 type InMemoryStorage struct {
+	lock  sync.Mutex
 	files map[string][]byte
 }
 
@@ -23,6 +25,9 @@ func NewInMemoryStorage() *InMemoryStorage {
 }
 
 func (s *InMemoryStorage) Read(ctx context.Context, filename string) ([]byte, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if f, ok := s.files[filename]; ok {
 		return f, nil
 	}
@@ -31,11 +36,17 @@ func (s *InMemoryStorage) Read(ctx context.Context, filename string) ([]byte, er
 }
 
 func (s *InMemoryStorage) Write(ctx context.Context, filename string, content []byte) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	s.files[filename] = content
 	return nil
 }
 
 func (s *InMemoryStorage) Delete(ctx context.Context, filename string) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if _, ok := s.files[filename]; ok {
 		delete(s.files, filename)
 	}
@@ -44,6 +55,9 @@ func (s *InMemoryStorage) Delete(ctx context.Context, filename string) error {
 }
 
 func (s *InMemoryStorage) Exists(ctx context.Context, filename string) (bool, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	_, ok := s.files[filename]
 	return ok, nil
 }
