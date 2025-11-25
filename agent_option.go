@@ -1,47 +1,67 @@
 package agent
 
-type AgentOption func(*Agent)
+import "github.com/openai/openai-go"
 
-func WithMemory(memory Memory) AgentOption {
+type Option func(*Agent)
+
+func WithMemory(memory Memory) Option {
 	return func(a *Agent) {
 		a.memory = memory
 	}
 }
 
-func WithToolset(tools Toolset) AgentOption {
+func WithToolset(tools Toolset) Option {
 	return func(a *Agent) {
 		a.tools = tools
 	}
 }
 
-func WithModel(model string) AgentOption {
+func WithModel(model string) Option {
 	return func(a *Agent) {
 		a.model = model
 	}
 }
 
-func WithDescription(desc string) AgentOption {
+func WithDescription(desc string) Option {
 	return func(a *Agent) {
 		a.description = desc
 	}
 }
 
-func WithValues(values map[string]any) AgentOption {
+func WithClient(c openai.Client) Option {
 	return func(a *Agent) {
-		a.values = values
+		a.cli = c
 	}
 }
 
-func WithStructuredOutput() AgentOption {
+func WithValues(values map[string]any) Option {
+	return func(a *Agent) {
+		if a.values == nil {
+			a.values = make(map[string]any, len(values))
+		}
+
+		for k, v := range values {
+			a.values[k] = v
+		}
+	}
+}
+
+func WithStructuredOutput() Option {
 	return func(a *Agent) {
 		a.structured = true
 	}
 }
 
-func WithOptions(opts ...AgentOption) AgentOption {
+func WithOptions(opts ...Option) Option {
 	return func(a *Agent) {
 		for _, opt := range opts {
 			opt(a)
 		}
+	}
+}
+
+func WithModelMapper(mapping map[string]string) Option {
+	return func(a *Agent) {
+		a.models = mapping
 	}
 }

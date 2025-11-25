@@ -12,6 +12,7 @@ import (
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
+	"github.com/openai/openai-go/shared"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -22,13 +23,14 @@ type Agent struct {
 	tools       Toolset
 	memory      Memory
 	prompt      PromptLoader
-	values      map[string]any
-	model       string
-	iterations  int
-	structured  bool
+	values      map[string]any              // value for system prompt substitutions
+	model       string                      // default model to use
+	models      map[string]shared.ChatModel // model name models
+	iterations  int                         // maximum number of iterations for agentic loop
+	structured  bool                        // agent output is expected to be structured, the system will retry if LLM produces non-json output
 }
 
-func New(name string, prompt PromptLoader, opts ...AgentOption) *Agent {
+func New(name string, prompt PromptLoader, opts ...Option) *Agent {
 	a := &Agent{
 		cli:        openai.NewClient(option.WithAPIKey(env.String("OPENAI_API_KEY"))),
 		name:       name,
@@ -46,7 +48,7 @@ func New(name string, prompt PromptLoader, opts ...AgentOption) *Agent {
 	return a
 }
 
-func (a Agent) Ask(ctx context.Context, opts ...AgentOption) (err error) {
+func (a Agent) Ask(ctx context.Context, opts ...Option) (err error) {
 	c := a
 	for _, opt := range opts {
 		opt(&c)
@@ -147,6 +149,10 @@ func (a Agent) Ask(ctx context.Context, opts ...AgentOption) (err error) {
 func (a Agent) complete(ctx context.Context, req openai.ChatCompletionNewParams) (choice openai.ChatCompletionChoice, err error) {
 	span, ctx := tracing.StartSpan(ctx, "chat_completion", tracing.Kind(tracing.SpanLLM), tracing.Input(req.Messages), tracing.Attr("model", req.Model))
 	defer span.CloseWithError(err)
+
+	if m, ok := a.models[req.Model]; ok {
+		req.Model = m
+	}
 
 	resp, err := a.cli.Chat.Completions.New(ctx, req)
 	if err != nil {

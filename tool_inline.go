@@ -8,7 +8,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-func WithInlineTool[In any, Out any](name, desc string, fn func(context.Context, In) (Out, error)) AgentOption {
+func WithInlineTool[In any, Out any](name, desc string, fn func(context.Context, In) (Out, error)) Option {
 	is, err := jsonschema.For[In](nil)
 	if err != nil {
 		panic(fmt.Errorf("failed to make input schema for %T: %v", *new(In), err))

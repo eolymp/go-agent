@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-func WithStorageTools(storage Storage) AgentOption {
+func WithStorageTools(storage Storage) Option {
 	type Filename struct {
 		Filename string `json:"filename"`
 	}
@@ -41,7 +41,7 @@ func WithStorageTools(storage Storage) AgentOption {
 	)
 }
 
-func WithStorageReadTool(storage Storage) AgentOption {
+func WithStorageReadTool(storage Storage) Option {
 	type Filename struct {
 		Filename string `json:"filename"`
 	}

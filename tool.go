@@ -14,7 +14,7 @@ type Tool struct {
 	OutputSchema *jsonschema.Schema
 }
 
-func WithTool(tool Tool, fn func(context.Context, []byte) (any, error)) AgentOption {
+func WithTool(tool Tool, fn func(context.Context, []byte) (any, error)) Option {
 	return func(a *Agent) {
 		adder, ok := a.tools.(interface {
 			Add(t Tool, h ToolHandlerFunc)

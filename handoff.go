@@ -16,7 +16,7 @@ func (Handoff) Error() string {
 	return "handed over"
 }
 
-func WithHandoffTool(agents ...*Agent) AgentOption {
+func WithHandoffTool(agents ...*Agent) Option {
 	type HandoffRequest struct {
 		Specialist string `json:"specialist"`
 		Message    string `json:"message"`
@@ -58,7 +58,7 @@ func WithHandoffTool(agents ...*Agent) AgentOption {
 	}
 
 	return func(agent *Agent) {
-		opts := []AgentOption{
+		opts := []Option{
 			WithTool(list, func(ctx context.Context, in []byte) (any, error) {
 				var items []SpecialistDesc
 				for _, a := range agents {

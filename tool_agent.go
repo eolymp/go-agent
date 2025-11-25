@@ -8,7 +8,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-func WithSpecialistTool(agents ...*Agent) AgentOption {
+func WithSpecialistTool(agents ...*Agent) Option {
 	type SpecialistRequest struct {
 		Specialist string `json:"specialist"`
 		Task       string `json:"task"`
@@ -55,7 +55,7 @@ func WithSpecialistTool(agents ...*Agent) AgentOption {
 	}
 
 	return func(agent *Agent) {
-		opts := []AgentOption{
+		opts := []Option{
 			WithTool(list, func(ctx context.Context, in []byte) (any, error) {
 				var items []SpecialistDesc
 				for _, a := range agents {
