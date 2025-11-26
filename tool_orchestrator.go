@@ -15,7 +15,7 @@ func WithOrchestratorTool(agents ...Agent) Option {
 
 	for _, agent := range agents {
 		names[agent.name] = agent
-		desc = append(desc, fmt.Sprintf("  - `%s` %s", agent.name, agent.description))
+		desc = append(desc, fmt.Sprintf("  - `%s`: %s", agent.name, agent.description))
 	}
 
 	type Task struct {
@@ -40,8 +40,8 @@ func WithOrchestratorTool(agents ...Agent) Option {
 	}
 
 	planner := Tool{
-		Name:        "add_tasks",
-		Description: "Add tasks to the todo list",
+		Name:        "execute_tasks",
+		Description: "Execute tasks in the todo list",
 		InputSchema: &jsonschema.Schema{
 			Type:                 "object",
 			AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
