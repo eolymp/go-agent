@@ -144,7 +144,6 @@ func (t *Tracer) send(spans []Span) error {
 			},
 			Metrics: shared.InsertProjectLogsEventMetricsParam{
 				Start: param.NewOpt(float64(span.start.UnixMilli()) / 1000.0),
-				End:   param.NewOpt(float64(span.end.UnixMilli()) / 1000.0),
 			},
 			SpanAttributes: shared.SpanAttributesParam{
 				Name: param.NewOpt(span.name),
@@ -162,6 +161,10 @@ func (t *Tracer) send(spans []Span) error {
 
 		if span.error != nil {
 			event.Error = span.error.Error()
+		}
+
+		if !span.end.IsZero() {
+			event.Metrics.End = param.NewOpt(float64(span.end.UnixMilli()) / 1000.0)
 		}
 
 		if m := span.metrics; m != nil {
