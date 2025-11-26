@@ -101,7 +101,7 @@ func WithOrchestratorTool(agents ...Agent) Option {
 
 				if err := agent.Ask(ctx, WithMemory(m), WithStructuredOutput()); err != nil {
 					todo[idx].Status = "FAILED"
-					todo[idx].Outcome = "ERROR:" + err.Error()
+					todo[idx].Outcome = "ERROR: " + err.Error()
 					break
 				}
 
