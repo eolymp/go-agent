@@ -92,7 +92,10 @@ func (s *Span) SetTag(tag ...string) {
 
 func (s *Span) Close() {
 	s.end = time.Now()
-	s.tracer.record(*s)
+
+	if s.tracer != nil {
+		s.tracer.record(*s)
+	}
 }
 
 func (s *Span) CloseWithError(err error) {
