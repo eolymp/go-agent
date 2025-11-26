@@ -1,6 +1,12 @@
 package agent
 
-import "github.com/openai/openai-go"
+import (
+	"encoding/json"
+	"errors"
+	"strings"
+
+	"github.com/openai/openai-go"
+)
 
 type Option func(*Agent)
 
@@ -48,7 +54,17 @@ func WithValues(values map[string]any) Option {
 
 func WithStructuredOutput() Option {
 	return func(a *Agent) {
-		a.structured = true
+		a.normalizer = append(a.normalizer, func(reply *AssistantMessage) {
+			reply.Content = strings.TrimPrefix(strings.Trim(reply.Content, "`"), "json")
+		})
+
+		a.finalizer = append(a.finalizer, func(reply *AssistantMessage) error {
+			if !json.Valid([]byte(reply.Content)) {
+				return errors.New("response must be a valid JSON")
+			}
+
+			return nil
+		})
 	}
 }
 

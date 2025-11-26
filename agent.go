@@ -23,11 +23,12 @@ type Agent struct {
 	tools       Toolset
 	memory      Memory
 	prompt      PromptLoader
-	values      map[string]any              // value for system prompt substitutions
-	model       string                      // default model to use
-	models      map[string]shared.ChatModel // model name models
-	iterations  int                         // maximum number of iterations for agentic loop
-	structured  bool                        // agent output is expected to be structured, the system will retry if LLM produces non-json output
+	values      map[string]any                        // value for system prompt substitutions
+	model       string                                // default model to use
+	models      map[string]shared.ChatModel           // model name models
+	iterations  int                                   // maximum number of iterations for agentic loop
+	normalizer  []func(reply *AssistantMessage)       // agent output is expected to be structured, the system will retry if LLM produces non-json output
+	finalizer   []func(reply *AssistantMessage) error // agent output is expected to be structured, the system will retry if LLM produces non-json output
 }
 
 func New(name string, prompt PromptLoader, opts ...Option) *Agent {
@@ -124,13 +125,19 @@ func (a Agent) Ask(ctx context.Context, opts ...Option) (err error) {
 
 			continue
 		default:
-			if c.structured {
-				content := strings.TrimPrefix(strings.Trim(choice.Message.Content, "`"), "json")
+			reply := AssistantMessage{Name: c.name, Content: choice.Message.Content}
 
-				c.memory.Append(AssistantMessage{Name: c.name, Content: content})
+			// first normalize response
+			for _, nn := range c.normalizer {
+				nn(&reply)
+			}
 
-				if !json.Valid([]byte(content)) {
-					c.memory.Append(UserMessage{Content: "You must return a valid JSON response"})
+			c.memory.Append(reply)
+
+			// make sure all finalizers are ok with the response
+			for _, ff := range c.finalizer {
+				if err := ff(&reply); err != nil {
+					c.memory.Append(UserMessage{Content: "ERROR: " + err.Error()})
 					continue
 				}
 			}
