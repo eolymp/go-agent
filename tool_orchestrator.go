@@ -9,13 +9,13 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-func WithOrchestratorTool(agents ...Agent) Option {
-	names := map[string]Agent{}
+func WithOrchestratorTool(agents ...*Agent) Option {
+	names := map[string]*Agent{}
 	var desc []string
 
-	for _, agent := range agents {
-		names[agent.name] = agent
-		desc = append(desc, fmt.Sprintf("  - `%s`: %s", agent.name, agent.description))
+	for idx := range agents {
+		names[agents[idx].name] = agents[idx]
+		desc = append(desc, fmt.Sprintf("  - `%s`: %s", agents[idx].name, agents[idx].description))
 	}
 
 	type Task struct {
