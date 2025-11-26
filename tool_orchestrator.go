@@ -3,8 +3,10 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -99,24 +101,88 @@ func WithOrchestratorTool(agents ...*Agent) Option {
 				m.Append(&AssistantMessage{Name: "supervisor", Content: req.Context})
 				m.Append(&UserMessage{Content: task.Task})
 
-				if err := agent.Ask(ctx, WithMemory(m)); err != nil {
+				complete := func(s, r string) {
+					todo[idx].Status = s
+					todo[idx].Outcome = r
+				}
+
+				if err := agent.Ask(ctx, WithMemory(m), withCompletionTool(complete)); err != nil {
 					todo[idx].Status = "FAILED"
 					todo[idx].Outcome = "ERROR: " + err.Error()
 					break
 				}
 
-				reply, ok := m.Last().(AssistantMessage)
-				if !ok {
+				if todo[idx].Status == "" {
 					todo[idx].Status = "FAILED"
 					todo[idx].Outcome = "ERROR: agent did not respond"
 					break
 				}
 
-				todo[idx].Status = "COMPLETE"
-				todo[idx].Outcome = reply.Content
+				if todo[idx].Status == "FAILED" {
+					break
+				}
 			}
 
 			return &OrchestrationResponse{Tasks: todo}, nil
+		}),
+	)
+}
+
+func withCompletionTool(f func(status string, reasoning string)) Option {
+	type CompletionRequest struct {
+		Status    string `json:"status"`
+		Reasoning string `json:"reasoning"`
+	}
+
+	completer := Tool{
+		Name:        "complete_task",
+		Description: "Mark task as completed or to report an failure",
+		InputSchema: &jsonschema.Schema{
+			Type:                 "object",
+			AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
+			Required:             []string{"status", "reasoning"},
+			Properties: map[string]*jsonschema.Schema{
+				"status": {
+					Type:        "string",
+					Description: "COMPLETE if task is successfully complete; FAILURE if task is incomplete",
+				},
+				"reasoning": {
+					Type:        "string",
+					Description: "the summary of what actions have been taken and their outcome",
+				},
+			},
+		},
+	}
+
+	acked := atomic.Bool{}
+
+	return WithOptions(
+		WithTool(completer, func(ctx context.Context, in []byte) (any, error) {
+			req := CompletionRequest{}
+			if err := json.Unmarshal(in, &req); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal todo list: %w", err)
+			}
+
+			if req.Status != "COMPLETE" && req.Status != "FAILURE" {
+				return nil, fmt.Errorf("invalid status: %s, must be COMPLETE or FAILURE", req.Status)
+			}
+
+			if req.Reasoning == "" {
+				return nil, errors.New("reasoning is required")
+			}
+
+			f(req.Status, req.Reasoning)
+
+			acked.Store(true)
+
+			return "Acknowledged", nil
+		}),
+		WithFinalizer(func(*AssistantMessage) error {
+			if !acked.Load() {
+				return errors.New("you must call `complete_task` tool to report task completion status")
+			}
+
+			return nil
 		}),
 	)
 }

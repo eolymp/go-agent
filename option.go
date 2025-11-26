@@ -81,3 +81,15 @@ func WithModelMapper(mapping map[string]string) Option {
 		a.models = mapping
 	}
 }
+
+func WithNormalizer(ff ...func(*AssistantMessage)) Option {
+	return func(a *Agent) {
+		a.normalizer = append(a.normalizer, ff...)
+	}
+}
+
+func WithFinalizer(ff ...func(*AssistantMessage) error) Option {
+	return func(a *Agent) {
+		a.finalizer = append(a.finalizer, ff...)
+	}
+}
