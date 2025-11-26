@@ -118,8 +118,19 @@ func (t *Tracer) send(spans []Span) error {
 		return nil
 	}
 
+	// record the highest position for all spans
+	positions := map[string]int{}
+	for index, span := range spans {
+		positions[span.id] = index
+	}
+
 	req := braintrust.ProjectLogInsertParams{}
-	for _, span := range spans {
+	for index, span := range spans {
+		// skip older versions of the span
+		if p, ok := positions[span.id]; ok && p > index {
+			continue
+		}
+
 		event := shared.InsertProjectLogsEventParam{
 			ID:         param.NewOpt(span.id),
 			Created:    param.NewOpt(span.start),
