@@ -23,7 +23,7 @@ func WithStorageTools(storage Storage) Option {
 
 			return string(content), nil
 		}),
-		WithInlineTool("write_file", "Write a file in the storage. The filename is a short identifier: 1-5 words separated by dash plus an extension (.md, .cpp, etc). The filename must be unique.", func(ctx context.Context, in File) (string, error) {
+		WithInlineTool("write_file", "Write a file in the storage. You MUST always pass entire file content, never partial.", func(ctx context.Context, in File) (string, error) {
 			exists, _ := storage.Exists(ctx, in.Filename)
 			if err := storage.Write(ctx, in.Filename, []byte(in.Content)); err != nil {
 				return "", err
