@@ -99,7 +99,7 @@ func WithOrchestratorTool(agents ...*Agent) Option {
 				m.Append(&AssistantMessage{Name: "supervisor", Content: req.Context})
 				m.Append(&UserMessage{Content: task.Task})
 
-				if err := agent.Ask(ctx, WithMemory(m), WithStructuredOutput()); err != nil {
+				if err := agent.Ask(ctx, WithMemory(m)); err != nil {
 					todo[idx].Status = "FAILED"
 					todo[idx].Outcome = "ERROR: " + err.Error()
 					break
@@ -112,20 +112,8 @@ func WithOrchestratorTool(agents ...*Agent) Option {
 					break
 				}
 
-				outcome := Outcome{}
-
-				if err := reply.Unmarshal(&outcome); err != nil {
-					todo[idx].Status = "FAILED"
-					todo[idx].Outcome = "ERROR: Agent responded in invalid format. Response: " + reply.Content
-					break
-				}
-
-				todo[idx].Status = outcome.Status
-				todo[idx].Outcome = outcome.Reasoning
-
-				if outcome.Status != "COMPLETE" {
-					break
-				}
+				todo[idx].Status = "COMPLETE"
+				todo[idx].Outcome = reply.Content
 			}
 
 			return &OrchestrationResponse{Tasks: todo}, nil
