@@ -58,6 +58,8 @@ func (t *Tracer) StartSpan(ctx context.Context, name string, opts ...SpanOption)
 		ctx = context.WithValue(ctx, contextRoot, span)
 	}
 
+	t.record(span)
+
 	return span, context.WithValue(ctx, contextSpan, span)
 }
 
