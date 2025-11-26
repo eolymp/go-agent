@@ -92,6 +92,8 @@ func WithOrchestratorTool(agents ...*Agent) Option {
 			}
 
 			for idx, task := range todo {
+				idx := idx
+
 				agent, ok := names[task.Agent]
 				if !ok {
 					continue
