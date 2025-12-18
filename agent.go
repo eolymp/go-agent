@@ -77,6 +77,7 @@ func (a Agent) Ask(ctx context.Context, opts ...Option) (err error) {
 		span.SetMetadata("prompt_version", prompt.Version)
 	}
 
+loop:
 	for i := 0; i < c.iterations; i++ {
 		var messages []openai.ChatCompletionMessageParamUnion
 
@@ -138,7 +139,7 @@ func (a Agent) Ask(ctx context.Context, opts ...Option) (err error) {
 			for _, ff := range c.finalizer {
 				if err := ff(&reply); err != nil {
 					c.memory.Append(UserMessage{Content: "ERROR: " + err.Error()})
-					continue
+					continue loop
 				}
 			}
 
