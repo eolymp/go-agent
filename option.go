@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-
-	"github.com/openai/openai-go"
 )
 
 type Option func(*Agent)
@@ -34,9 +32,11 @@ func WithDescription(desc string) Option {
 	}
 }
 
-func WithClient(c openai.Client) Option {
+// WithChatCompleter sets a custom ChatCompleter implementation.
+// This is the preferred method for testing and custom implementations.
+func WithChatCompleter(completer ChatCompleter) Option {
 	return func(a *Agent) {
-		a.cli = c
+		a.completer = completer
 	}
 }
 

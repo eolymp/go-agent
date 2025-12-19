@@ -8,7 +8,9 @@ import (
 
 var nameValidator = regexp.MustCompile(`[\s<|\\/>]`)
 
-func normalizeName(n string) string {
+// NormalizeName normalizes a name by replacing invalid characters.
+// This function is exported for use by provider implementations.
+func NormalizeName(n string) string {
 	if name := nameValidator.ReplaceAllString(n, "_"); name != "" {
 		return name
 	}

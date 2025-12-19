@@ -8,16 +8,11 @@ import (
 	"strings"
 
 	"github.com/eolymp/go-agent/tracing"
-	"github.com/eolymp/go-packages/env"
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
-	"github.com/openai/openai-go/packages/param"
-	"github.com/openai/openai-go/shared"
 	"golang.org/x/sync/errgroup"
 )
 
 type Agent struct {
-	cli         openai.Client
+	completer   ChatCompleter
 	name        string
 	description string
 	tools       Toolset
@@ -25,7 +20,7 @@ type Agent struct {
 	prompt      PromptLoader
 	values      map[string]any                        // value for system prompt substitutions
 	model       string                                // default model to use
-	models      map[string]shared.ChatModel           // model name models
+	models      map[string]string                     // model name mapping
 	iterations  int                                   // maximum number of iterations for agentic loop
 	normalizer  []func(reply *AssistantMessage)       // agent output is expected to be structured, the system will retry if LLM produces non-json output
 	finalizer   []func(reply *AssistantMessage) error // agent output is expected to be structured, the system will retry if LLM produces non-json output
@@ -33,17 +28,20 @@ type Agent struct {
 
 func New(name string, prompt PromptLoader, opts ...Option) *Agent {
 	a := &Agent{
-		cli:        openai.NewClient(option.WithAPIKey(env.String("OPENAI_API_KEY"))),
+		completer:  defaultCompleter,
 		name:       name,
 		prompt:     prompt,
 		iterations: 120,
 		tools:      NewStaticToolset(),
 		memory:     NewStaticMemory(),
-		model:      openai.ChatModelGPT4_1,
 	}
 
 	for _, opt := range opts {
 		opt(a)
+	}
+
+	if a.completer == nil {
+		panic("agent without completer, use WithCompleter option or SetDefaultCompleter")
 	}
 
 	return a
@@ -58,7 +56,7 @@ func (a Agent) Ask(ctx context.Context, opts ...Option) (err error) {
 	span, ctx := tracing.StartSpan(ctx, fmt.Sprintf("agent %q", c.name), tracing.Kind(tracing.SpanTask))
 	defer span.CloseWithError(err)
 
-	var tools = c.toolList()
+	var tools = c.tools.List()
 	var prompt *Prompt
 	var model = c.model
 
@@ -79,29 +77,24 @@ func (a Agent) Ask(ctx context.Context, opts ...Option) (err error) {
 
 loop:
 	for i := 0; i < c.iterations; i++ {
-		var messages []openai.ChatCompletionMessageParamUnion
+		var messages []Message
 
 		if prompt != nil {
 			for _, p := range prompt.Messages {
-				messages = append(messages, renderMessage(c.name, p, c.values).toOpenAIMessage())
+				messages = append(messages, renderMessage(c.name, p, c.values))
 			}
 		}
 
 		for _, message := range c.memory.List() {
-			messages = append(messages, message.toOpenAIMessage())
+			messages = append(messages, message)
 		}
 
-		req := openai.ChatCompletionNewParams{
-			Model:    model,
-			Messages: messages,
-		}
-
-		if len(tools) > 0 {
-			req.Tools = tools
-			req.ParallelToolCalls = openai.Bool(true)
-			req.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
-				OfAuto: param.NewOpt(string(openai.AssistantToolChoiceOptionAutoAuto)),
-			}
+		req := CompletionRequest{
+			Model:             model,
+			Messages:          messages,
+			Tools:             tools,
+			ParallelToolCalls: true,
+			ToolChoice:        ToolChoiceAuto,
 		}
 
 		choice, err := c.complete(ctx, req)
@@ -110,7 +103,7 @@ loop:
 		}
 
 		switch choice.FinishReason {
-		case "tool_calls":
+		case FinishReasonToolCalls:
 			if c.isNotEmptyResponse(choice.Message.Content) {
 				c.memory.Append(AssistantMessage{Name: c.name, Content: choice.Message.Content})
 			}
@@ -154,7 +147,7 @@ loop:
 	return nil
 }
 
-func (a Agent) complete(ctx context.Context, req openai.ChatCompletionNewParams) (choice openai.ChatCompletionChoice, err error) {
+func (a Agent) complete(ctx context.Context, req CompletionRequest) (choice CompletionChoice, err error) {
 	span, ctx := tracing.StartSpan(ctx, "chat_completion", tracing.Kind(tracing.SpanLLM), tracing.Input(req.Messages), tracing.Attr("model", req.Model))
 	defer span.CloseWithError(err)
 
@@ -162,13 +155,13 @@ func (a Agent) complete(ctx context.Context, req openai.ChatCompletionNewParams)
 		req.Model = m
 	}
 
-	resp, err := a.cli.Chat.Completions.New(ctx, req)
+	resp, err := a.completer.Complete(ctx, req)
 	if err != nil {
-		return openai.ChatCompletionChoice{}, err
+		return CompletionChoice{}, err
 	}
 
 	if len(resp.Choices) == 0 {
-		return openai.ChatCompletionChoice{}, errors.New("no response")
+		return CompletionChoice{}, errors.New("no response")
 	}
 
 	choice = resp.Choices[0]
@@ -177,12 +170,12 @@ func (a Agent) complete(ctx context.Context, req openai.ChatCompletionNewParams)
 	span.SetMetric("tokens", float64(resp.Usage.TotalTokens))
 	span.SetMetric("prompt_tokens", float64(resp.Usage.PromptTokens))
 	span.SetMetric("completion_tokens", float64(resp.Usage.CompletionTokens))
-	span.SetMetric("prompt_cached_tokens", float64(resp.Usage.PromptTokensDetails.CachedTokens))
+	span.SetMetric("prompt_cached_tokens", float64(resp.Usage.CachedPromptTokens))
 
 	return choice, nil
 }
 
-func (a Agent) callTools(ctx context.Context, calls []openai.ChatCompletionMessageToolCall) error {
+func (a Agent) callTools(ctx context.Context, calls []CompletionToolCall) error {
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.SetLimit(5)
 
@@ -192,10 +185,10 @@ func (a Agent) callTools(ctx context.Context, calls []openai.ChatCompletionMessa
 		index, call := index, call
 
 		eg.Go(func() (err error) {
-			span, ctx := tracing.StartSpan(ctx, fmt.Sprintf("tool_call %q", call.Function.Name), tracing.Kind(tracing.SpanTool), tracing.Input(json.RawMessage(call.Function.Arguments)))
+			span, ctx := tracing.StartSpan(ctx, fmt.Sprintf("tool_call %q", call.Name), tracing.Kind(tracing.SpanTool), tracing.Input(json.RawMessage(call.Arguments)))
 			defer span.Close()
 
-			res, err := a.tools.Call(ctx, call.Function.Name, []byte(call.Function.Arguments))
+			res, err := a.tools.Call(ctx, call.Name, []byte(call.Arguments))
 			if errors.As(err, &Handoff{}) {
 				return err
 			}
@@ -220,7 +213,7 @@ func (a Agent) callTools(ctx context.Context, calls []openai.ChatCompletionMessa
 	// append conversation after all tools have finished
 	msg := AssistantToolCall{}
 	for _, call := range calls {
-		msg.Calls = append(msg.Calls, &ToolCall{CallID: call.ID, Name: call.Function.Name, Arguments: []byte(call.Function.Arguments)})
+		msg.Calls = append(msg.Calls, &ToolCall{CallID: call.ID, Name: call.Name, Arguments: []byte(call.Arguments)})
 	}
 
 	a.memory.Append(msg)
@@ -230,35 +223,6 @@ func (a Agent) callTools(ctx context.Context, calls []openai.ChatCompletionMessa
 	}
 
 	return nil
-}
-
-func (a Agent) toolList() []openai.ChatCompletionToolParam {
-	var tools []openai.ChatCompletionToolParam
-
-	for _, tool := range a.tools.List() {
-		function := openai.FunctionDefinitionParam{
-			Name:        tool.Name,
-			Description: openai.String(tool.Description),
-		}
-
-		if tool.InputSchema != nil && tool.InputSchema.Type != "" {
-			if tool.InputSchema.Type != "object" {
-				panic(fmt.Errorf("tool %q input schema must be object", tool.Name))
-			}
-
-			//function.Strict = openai.Bool(true)
-			function.Parameters = openai.FunctionParameters{
-				"type":                 "object",
-				"properties":           tool.InputSchema.Properties,
-				"required":             tool.InputSchema.Required,
-				"additionalProperties": false,
-			}
-		}
-
-		tools = append(tools, openai.ChatCompletionToolParam{Function: function})
-	}
-
-	return tools
 }
 
 func (a Agent) isNotEmptyResponse(reply string) bool {
