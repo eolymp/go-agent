@@ -43,7 +43,7 @@ func (c *Completer) Complete(ctx context.Context, req agent.CompletionRequest) (
 
 // toAnthropicRequest converts a universal CompletionRequest to Anthropic-specific params.
 func toAnthropicRequest(req agent.CompletionRequest) anthropic.MessageNewParams {
-	params := anthropic.MessageNewParams{Model: anthropic.Model(req.Model), MaxTokens: 64000}
+	params := anthropic.MessageNewParams{Model: anthropic.Model(req.Model), MaxTokens: 8192}
 
 	if req.MaxTokens != nil {
 		params.MaxTokens = int64(*req.MaxTokens)
