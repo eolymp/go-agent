@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/eolymp/go-agent/tracing"
 	"golang.org/x/sync/errgroup"
@@ -97,18 +96,29 @@ loop:
 			ToolChoice:        ToolChoiceAuto,
 		}
 
-		choice, err := c.complete(ctx, req)
+		resp, err := c.complete(ctx, req)
 		if err != nil {
 			return err
 		}
 
-		switch choice.FinishReason {
+		// Extract text and tool calls from content blocks
+		switch resp.FinishReason {
 		case FinishReasonToolCalls:
-			if c.isNotEmptyResponse(choice.Message.Content) {
-				c.memory.Append(AssistantMessage{Name: c.name, Content: choice.Message.Content})
+			var calls []CompletionToolCall
+
+			for _, block := range resp.Content {
+				switch block.Type {
+				case ContentBlockTypeText:
+					if block.Text != "" {
+						c.memory.Append(AssistantMessage{Name: c.name, Content: block.Text})
+					}
+
+				case ContentBlockTypeToolUse:
+					calls = append(calls, CompletionToolCall{ID: block.ID, Name: block.Name, Arguments: block.Arguments})
+				}
 			}
 
-			if err := c.callTools(ctx, choice.Message.ToolCalls); err != nil {
+			if err := c.callTools(ctx, calls); err != nil {
 				var ho Handoff
 				if errors.As(err, &ho) {
 					return ho.Agent.Ask(ctx, WithMemory(c.memory))
@@ -119,25 +129,27 @@ loop:
 
 			continue
 		default:
-			reply := AssistantMessage{Name: c.name, Content: choice.Message.Content}
-
-			// first normalize response
-			for _, nn := range c.normalizer {
-				nn(&reply)
-			}
-
-			c.memory.Append(reply)
-
-			// make sure all finalizers are ok with the response
-			for _, ff := range c.finalizer {
-				if err := ff(&reply); err != nil {
-					c.memory.Append(UserMessage{Content: "ERROR: " + err.Error()})
-					continue loop
+			for _, block := range resp.Content {
+				if block.Type != ContentBlockTypeText {
+					continue
 				}
-			}
 
-			if c.isNotEmptyResponse(choice.Message.Content) {
-				c.memory.Append(AssistantMessage{Name: c.name, Content: choice.Message.Content})
+				reply := AssistantMessage{Name: c.name, Content: block.Text}
+
+				// first normalize response
+				for _, nn := range c.normalizer {
+					nn(&reply)
+				}
+
+				c.memory.Append(reply)
+
+				// make sure all finalizers are ok with the response
+				for _, ff := range c.finalizer {
+					if err := ff(&reply); err != nil {
+						c.memory.Append(UserMessage{Content: "ERROR: " + err.Error()})
+						continue loop
+					}
+				}
 			}
 		}
 
@@ -147,7 +159,7 @@ loop:
 	return nil
 }
 
-func (a Agent) complete(ctx context.Context, req CompletionRequest) (choice CompletionChoice, err error) {
+func (a Agent) complete(ctx context.Context, req CompletionRequest) (resp *CompletionResponse, err error) {
 	span, ctx := tracing.StartSpan(ctx, "chat_completion", tracing.Kind(tracing.SpanLLM), tracing.Input(req.Messages), tracing.Attr("model", req.Model))
 	defer span.CloseWithError(err)
 
@@ -155,24 +167,18 @@ func (a Agent) complete(ctx context.Context, req CompletionRequest) (choice Comp
 		req.Model = m
 	}
 
-	resp, err := a.completer.Complete(ctx, req)
+	resp, err = a.completer.Complete(ctx, req)
 	if err != nil {
-		return CompletionChoice{}, err
+		return nil, err
 	}
 
-	if len(resp.Choices) == 0 {
-		return CompletionChoice{}, errors.New("no response")
-	}
-
-	choice = resp.Choices[0]
-
-	span.SetOutput(resp.Choices[0].Message)
+	span.SetOutput(resp.Content)
 	span.SetMetric("tokens", float64(resp.Usage.TotalTokens))
 	span.SetMetric("prompt_tokens", float64(resp.Usage.PromptTokens))
 	span.SetMetric("completion_tokens", float64(resp.Usage.CompletionTokens))
 	span.SetMetric("prompt_cached_tokens", float64(resp.Usage.CachedPromptTokens))
 
-	return choice, nil
+	return resp, nil
 }
 
 func (a Agent) callTools(ctx context.Context, calls []CompletionToolCall) error {
@@ -223,11 +229,6 @@ func (a Agent) callTools(ctx context.Context, calls []CompletionToolCall) error 
 	}
 
 	return nil
-}
-
-func (a Agent) isNotEmptyResponse(reply string) bool {
-	reply = strings.TrimSpace(strings.ToUpper(reply))
-	return reply != "NO RESPONSE" && reply != ""
 }
 
 // Memory provides access to agent's memory

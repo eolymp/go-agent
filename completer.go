@@ -102,8 +102,11 @@ type CompletionRequest struct {
 
 // CompletionResponse represents a provider-agnostic chat completion response.
 type CompletionResponse struct {
-	// Choices contains the generated completions (typically only one)
-	Choices []CompletionChoice
+	// Message contains the generated message
+	Content []ContentBlock
+
+	// FinishReason indicates why generation stopped
+	FinishReason FinishReason
 
 	// Usage contains token usage information
 	Usage CompletionUsage
@@ -112,36 +115,36 @@ type CompletionResponse struct {
 	Model string
 }
 
-// CompletionChoice represents a single completion choice from the response.
-type CompletionChoice struct {
-	// Index is the index of this choice in the response
-	Index int
+// ContentBlockType represents the type of content block.
+type ContentBlockType string
 
-	// Message contains the generated message
-	Message CompletionMessage
+const (
+	// ContentBlockTypeText represents a text content block
+	ContentBlockTypeText ContentBlockType = "text"
+	// ContentBlockTypeToolUse represents a tool use content block
+	ContentBlockTypeToolUse ContentBlockType = "tool_use"
+)
 
-	// FinishReason indicates why generation stopped
-	FinishReason FinishReason
+// ContentBlock represents a single content block in a message.
+// The Type field determines which other fields are populated.
+type ContentBlock struct {
+	// Type is the discriminator: ContentBlockTypeText or ContentBlockTypeToolUse
+	Type ContentBlockType
+
+	// Text content (populated when Type == ContentBlockTypeText)
+	Text string
+
+	// Tool use fields (populated when Type == ContentBlockTypeToolUse)
+	ID        string // unique identifier for the tool call
+	Name      string // name of the tool to call
+	Arguments string // JSON-formatted arguments for the tool
 }
 
-// CompletionMessage represents a message in the completion response.
-type CompletionMessage struct {
-	// Content is the text content of the message
-	Content string
-
-	// ToolCalls contains any tool calls requested by the model (optional)
-	ToolCalls []CompletionToolCall
-}
-
-// CompletionToolCall represents a tool call requested by the model.
+// CompletionToolCall represents a tool call extracted from content blocks.
+// This is a convenience type for the agent to work with tool calls.
 type CompletionToolCall struct {
-	// ID is a unique identifier for this tool call
-	ID string
-
-	// Name is the name of the tool to call
-	Name string
-
-	// Arguments contains the JSON-formatted arguments for the tool
+	ID        string
+	Name      string
 	Arguments string
 }
 

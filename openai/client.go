@@ -87,29 +87,24 @@ func toOpenAIRequest(req agent.CompletionRequest) openai.ChatCompletionNewParams
 
 // fromOpenAIResponse converts an OpenAI response to a universal CompletionResponse.
 func fromOpenAIResponse(resp *openai.ChatCompletion) *agent.CompletionResponse {
-	result := &agent.CompletionResponse{
-		Model: resp.Model,
+	// Pick the first choice (typically OpenAI only returns one choice anyway)
+	if len(resp.Choices) == 0 {
+		panic("OpenAI response has no choices")
+	}
+
+	choice := resp.Choices[0]
+
+	return &agent.CompletionResponse{
+		Model:        resp.Model,
+		Content:      fromOpenAIContent(choice.Message.Content, choice.Message.ToolCalls),
+		FinishReason: mapFinishReason(choice.FinishReason),
 		Usage: agent.CompletionUsage{
 			PromptTokens:       int(resp.Usage.PromptTokens),
 			CompletionTokens:   int(resp.Usage.CompletionTokens),
 			TotalTokens:        int(resp.Usage.TotalTokens),
 			CachedPromptTokens: int(resp.Usage.PromptTokensDetails.CachedTokens),
 		},
-		Choices: make([]agent.CompletionChoice, len(resp.Choices)),
 	}
-
-	for i, choice := range resp.Choices {
-		result.Choices[i] = agent.CompletionChoice{
-			Index:        int(choice.Index),
-			FinishReason: mapFinishReason(choice.FinishReason),
-			Message: agent.CompletionMessage{
-				Content:   choice.Message.Content,
-				ToolCalls: fromOpenAIToolCalls(choice.Message.ToolCalls),
-			},
-		}
-	}
-
-	return result
 }
 
 // mapFinishReason converts OpenAI's string finish reason to the universal FinishReason type.
@@ -128,22 +123,29 @@ func mapFinishReason(reason string) agent.FinishReason {
 	}
 }
 
-// fromOpenAIToolCalls converts OpenAI tool calls to universal format.
-func fromOpenAIToolCalls(calls []openai.ChatCompletionMessageToolCall) []agent.CompletionToolCall {
-	if len(calls) == 0 {
-		return nil
+// fromOpenAIContent converts OpenAI content and tool calls to content blocks.
+func fromOpenAIContent(content string, toolCalls []openai.ChatCompletionMessageToolCall) []agent.ContentBlock {
+	var blocks []agent.ContentBlock
+
+	// Add text block if content is not empty
+	if content != "" {
+		blocks = append(blocks, agent.ContentBlock{
+			Type: agent.ContentBlockTypeText,
+			Text: content,
+		})
 	}
 
-	result := make([]agent.CompletionToolCall, len(calls))
-	for i, call := range calls {
-		result[i] = agent.CompletionToolCall{
+	// Add tool use blocks for each tool call
+	for _, call := range toolCalls {
+		blocks = append(blocks, agent.ContentBlock{
+			Type:      agent.ContentBlockTypeToolUse,
 			ID:        call.ID,
 			Name:      call.Function.Name,
 			Arguments: call.Function.Arguments,
-		}
+		})
 	}
 
-	return result
+	return blocks
 }
 
 // messageToOpenAI converts a universal Message to OpenAI-specific message format.
