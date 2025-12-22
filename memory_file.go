@@ -26,15 +26,11 @@ func (m *FileMemory) Close() {
 func (m *FileMemory) Append(msg Message) {
 	switch v := msg.(type) {
 	case SystemMessage:
-		fmt.Fprintln(m.f, "System: ", v.Name, v.Content)
+		fmt.Fprintln(m.f, "System: ", v.Content)
 	case UserMessage:
 		fmt.Fprintln(m.f, "User: ", v.Content)
 	case AssistantMessage:
-		fmt.Fprintln(m.f, "Assistant: ", v.Name, v.Content)
-	case AssistantToolCall:
-		for _, call := range v.Calls {
-			fmt.Println("Tool call: ", call.Name, string(call.Arguments))
-		}
+		fmt.Fprintln(m.f, "Assistant: ", v.Text())
 	case ToolResult:
 		data, _ := json.Marshal(v.Result)
 		fmt.Fprintln(m.f, "Tool result: ", string(data))

@@ -54,12 +54,11 @@ func WithValues(values map[string]any) Option {
 
 func WithStructuredOutput() Option {
 	return func(a *Agent) {
-		a.normalizer = append(a.normalizer, func(reply *AssistantMessage) {
-			reply.Content = strings.TrimPrefix(strings.Trim(reply.Content, "`"), "json")
-		})
-
 		a.finalizer = append(a.finalizer, func(reply *AssistantMessage) error {
-			if !json.Valid([]byte(reply.Content)) {
+			text := reply.Text()
+			text = strings.TrimPrefix(strings.Trim(text, "`"), "json")
+
+			if !json.Valid([]byte(text)) {
 				return errors.New("response must be a valid JSON")
 			}
 

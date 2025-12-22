@@ -100,8 +100,8 @@ func WithOrchestratorTool(agents ...*Agent) Option {
 				}
 
 				m := NewStaticMemory()
-				m.Append(&AssistantMessage{Name: "supervisor", Content: req.Context})
-				m.Append(&UserMessage{Content: "You have to perform the task described below and call `complete_task` to communicate the results. \n\nThe task: " + task.Task})
+				m.Append(NewAssistantMessage(req.Context))
+				m.Append(NewUserMessage("You have to perform the task described below and call `complete_task` to communicate the results. \n\nThe task: " + task.Task))
 
 				complete := func(s, r string) {
 					todo[idx].Status = s

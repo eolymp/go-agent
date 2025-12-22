@@ -76,8 +76,8 @@ func WithSpecialistTool(agents ...*Agent) Option {
 					}
 
 					m := NewStaticMemory()
-					m.Append(&AssistantMessage{Name: "supervisor", Content: "The summary of the conversation so far:\n" + req.Context})
-					m.Append(&UserMessage{Content: req.Task})
+					m.Append(NewAssistantMessage("The summary of the conversation so far:\n" + req.Context))
+					m.Append(NewUserMessage(req.Task))
 
 					if err := a.Ask(ctx, WithMemory(m)); err != nil {
 						return nil, fmt.Errorf("failed to ask specialist %q: %w", req.Specialist, err)
@@ -86,8 +86,8 @@ func WithSpecialistTool(agents ...*Agent) Option {
 					reply := ""
 					messages := m.List()
 					for i := len(messages) - 1; i >= 0; i-- {
-						if m, ok := messages[i].(AssistantMessage); ok && (m.Name != "supervisor" || m.Name == a.name) {
-							reply += m.Content + "\n"
+						if m, ok := messages[i].(AssistantMessage); ok {
+							reply += m.Text() + "\n"
 						}
 					}
 

@@ -28,7 +28,7 @@ func SystemPrompt(p string) PromptLoaderFunc {
 		return &Prompt{
 			Name:     "static",
 			Version:  "0.1.0",
-			Messages: []Message{SystemMessage{Content: p}},
+			Messages: []Message{NewSystemMessage(p)},
 		}, nil
 	}
 }
@@ -44,11 +44,11 @@ func RemotePrompt(slug string) PromptLoaderFunc {
 		for _, prompt := range prompt.Messages {
 			switch prompt.Role {
 			case prompting.RoleSystem:
-				messages = append(messages, SystemMessage{Content: prompt.Content})
+				messages = append(messages, NewSystemMessage(prompt.Content))
 			case prompting.RoleUser:
-				messages = append(messages, UserMessage{Content: prompt.Content})
+				messages = append(messages, NewUserMessage(prompt.Content))
 			case prompting.RoleAssistant:
-				messages = append(messages, AssistantMessage{Content: prompt.Content})
+				messages = append(messages, NewAssistantMessage(prompt.Content))
 			}
 		}
 

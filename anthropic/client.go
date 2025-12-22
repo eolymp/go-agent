@@ -61,45 +61,29 @@ func toAnthropicRequest(req agent.CompletionRequest) anthropic.MessageNewParams 
 	for _, msg := range req.Messages {
 		switch m := msg.(type) {
 		case agent.SystemMessage:
-			content := m.Content
-			if m.Name != "" {
-				content = fmt.Sprintf("[%s] %s", agent.NormalizeName(m.Name), m.Content)
-			}
-
 			params.System = append(params.System, anthropic.TextBlockParam{
 				Type: "text",
-				Text: content,
+				Text: m.Content,
 			})
 
 		case agent.UserMessage:
-			content := m.Content
-			if m.Name != "" {
-				content = fmt.Sprintf("[%s] %s", agent.NormalizeName(m.Name), m.Content)
-			}
-
 			params.Messages = append(params.Messages, anthropic.MessageParam{
 				Role:    "user",
-				Content: []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(content)},
+				Content: []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(m.Content)},
 			})
 
 		case agent.AssistantMessage:
-			content := m.Content
-			if m.Name != "" {
-				content = fmt.Sprintf("[%s] %s", agent.NormalizeName(m.Name), m.Content)
-			}
+			content := make([]anthropic.ContentBlockParamUnion, len(m.Content))
+			for i, block := range m.Content {
+				switch block.Type {
+				case agent.ContentBlockTypeText:
+					content[i] = anthropic.NewTextBlock(block.Text)
 
-			params.Messages = append(params.Messages, anthropic.MessageParam{
-				Role:    "assistant",
-				Content: []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(content)},
-			})
-
-		case agent.AssistantToolCall:
-			content := make([]anthropic.ContentBlockParamUnion, len(m.Calls))
-			for i, call := range m.Calls {
-				var input map[string]interface{}
-				_ = json.Unmarshal(call.Arguments, &input)
-
-				content[i] = anthropic.NewToolUseBlock(call.CallID, input, call.Name)
+				case agent.ContentBlockTypeToolUse:
+					var input map[string]interface{}
+					_ = json.Unmarshal([]byte(block.Arguments), &input)
+					content[i] = anthropic.NewToolUseBlock(block.ID, input, block.Name)
+				}
 			}
 
 			params.Messages = append(params.Messages, anthropic.MessageParam{

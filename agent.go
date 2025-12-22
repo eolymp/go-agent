@@ -101,22 +101,22 @@ loop:
 			return err
 		}
 
+		// Store the assistant message with all content blocks
+		reply := AssistantMessage{Content: resp.Content}
+
 		// Extract text and tool calls from content blocks
 		switch resp.FinishReason {
 		case FinishReasonToolCalls:
 			var calls []CompletionToolCall
 
 			for _, block := range resp.Content {
-				switch block.Type {
-				case ContentBlockTypeText:
-					if block.Text != "" {
-						c.memory.Append(AssistantMessage{Name: c.name, Content: block.Text})
-					}
-
-				case ContentBlockTypeToolUse:
+				if block.Type == ContentBlockTypeToolUse {
 					calls = append(calls, CompletionToolCall{ID: block.ID, Name: block.Name, Arguments: block.Arguments})
 				}
 			}
+
+			// Append assistant message with all content blocks (text + tool calls)
+			c.memory.Append(reply)
 
 			if err := c.callTools(ctx, calls); err != nil {
 				var ho Handoff
@@ -129,26 +129,18 @@ loop:
 
 			continue
 		default:
-			for _, block := range resp.Content {
-				if block.Type != ContentBlockTypeText {
-					continue
-				}
+			// first normalize response
+			for _, nn := range c.normalizer {
+				nn(&reply)
+			}
 
-				reply := AssistantMessage{Name: c.name, Content: block.Text}
+			c.memory.Append(reply)
 
-				// first normalize response
-				for _, nn := range c.normalizer {
-					nn(&reply)
-				}
-
-				c.memory.Append(reply)
-
-				// make sure all finalizers are ok with the response
-				for _, ff := range c.finalizer {
-					if err := ff(&reply); err != nil {
-						c.memory.Append(UserMessage{Content: "ERROR: " + err.Error()})
-						continue loop
-					}
+			// make sure all finalizers are ok with the response
+			for _, ff := range c.finalizer {
+				if err := ff(&reply); err != nil {
+					c.memory.Append(NewUserMessage("ERROR: " + err.Error()))
+					continue loop
 				}
 			}
 		}
@@ -200,12 +192,12 @@ func (a Agent) callTools(ctx context.Context, calls []CompletionToolCall) error 
 			}
 
 			if err != nil {
-				results[index] = ToolError{CallID: call.ID, Error: err}
+				results[index] = NewToolError(call.ID, err)
 				span.SetError(err)
 				return nil
 			}
 
-			results[index] = ToolResult{CallID: call.ID, Result: res}
+			results[index] = NewToolResult(call.ID, res)
 			span.SetOutput(res)
 
 			return nil
@@ -215,14 +207,6 @@ func (a Agent) callTools(ctx context.Context, calls []CompletionToolCall) error 
 	if err := eg.Wait(); err != nil {
 		return err
 	}
-
-	// append conversation after all tools have finished
-	msg := AssistantToolCall{}
-	for _, call := range calls {
-		msg.Calls = append(msg.Calls, &ToolCall{CallID: call.ID, Name: call.Name, Arguments: []byte(call.Arguments)})
-	}
-
-	a.memory.Append(msg)
 
 	for _, result := range results {
 		a.memory.Append(result)

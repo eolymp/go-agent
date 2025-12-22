@@ -20,17 +20,20 @@ func renderMessage(name string, m Message, values map[string]any) Message {
 	case SystemMessage:
 		c := x
 		c.Content = mustache.Render(x.Content, values)
-		c.Name = name
 		return c
 	case AssistantMessage:
 		c := x
-		c.Content = mustache.Render(x.Content, values)
-		c.Name = name
+		// Render text blocks in content
+		for i := range c.Content {
+			if c.Content[i].Type == ContentBlockTypeText {
+				c.Content[i].Text = mustache.Render(c.Content[i].Text, values)
+			}
+		}
+
 		return c
 	case UserMessage:
 		c := x
 		c.Content = mustache.Render(x.Content, values)
-		c.Name = name
 		return c
 	default:
 		return m

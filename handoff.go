@@ -79,7 +79,7 @@ func WithHandoffTool(agents ...*Agent) Option {
 					}
 
 					if req.Message != "" {
-						agent.memory.Append(AssistantMessage{Name: agent.Name(), Content: req.Message})
+						agent.memory.Append(NewAssistantMessage(req.Message))
 					}
 
 					return "", Handoff{Agent: a}

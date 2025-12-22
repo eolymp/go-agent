@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/eolymp/go-agent"
 	"github.com/openai/openai-go"
@@ -157,8 +158,6 @@ func messageToOpenAI(msg agent.Message) openai.ChatCompletionMessageParamUnion {
 		return userMessageToOpenAI(m)
 	case agent.AssistantMessage:
 		return assistantMessageToOpenAI(m)
-	case agent.AssistantToolCall:
-		return assistantToolCallToOpenAI(m)
 	case agent.ToolResult:
 		return toolResultToOpenAI(m)
 	case agent.ToolError:
@@ -170,53 +169,49 @@ func messageToOpenAI(msg agent.Message) openai.ChatCompletionMessageParamUnion {
 
 // systemMessageToOpenAI converts a SystemMessage to OpenAI format.
 func systemMessageToOpenAI(m agent.SystemMessage) openai.ChatCompletionMessageParamUnion {
-	msg := &openai.ChatCompletionSystemMessageParam{
+	return openai.ChatCompletionMessageParamUnion{OfSystem: &openai.ChatCompletionSystemMessageParam{
 		Content: openai.ChatCompletionSystemMessageParamContentUnion{OfString: param.NewOpt(m.Content)},
-	}
-
-	if m.Name != "" {
-		msg.Name = param.NewOpt(agent.NormalizeName(m.Name))
-	}
-
-	return openai.ChatCompletionMessageParamUnion{OfSystem: msg}
+	}}
 }
 
 // userMessageToOpenAI converts a UserMessage to OpenAI format.
 func userMessageToOpenAI(m agent.UserMessage) openai.ChatCompletionMessageParamUnion {
-	msg := &openai.ChatCompletionUserMessageParam{
+	return openai.ChatCompletionMessageParamUnion{OfUser: &openai.ChatCompletionUserMessageParam{
 		Content: openai.ChatCompletionUserMessageParamContentUnion{OfString: param.NewOpt(m.Content)},
-	}
-
-	if m.Name != "" {
-		msg.Name = param.NewOpt(agent.NormalizeName(m.Name))
-	}
-
-	return openai.ChatCompletionMessageParamUnion{OfUser: msg}
+	}}
 }
 
 // assistantMessageToOpenAI converts an AssistantMessage to OpenAI format.
 func assistantMessageToOpenAI(m agent.AssistantMessage) openai.ChatCompletionMessageParamUnion {
-	msg := &openai.ChatCompletionAssistantMessageParam{
-		Content: openai.ChatCompletionAssistantMessageParamContentUnion{OfString: param.NewOpt(m.Content)},
-	}
-
-	if m.Name != "" {
-		msg.Name = param.NewOpt(agent.NormalizeName(m.Name))
-	}
-
-	return openai.ChatCompletionMessageParamUnion{OfAssistant: msg}
-}
-
-// assistantToolCallToOpenAI converts an AssistantToolCall to OpenAI format.
-func assistantToolCallToOpenAI(m agent.AssistantToolCall) openai.ChatCompletionMessageParamUnion {
 	var msg openai.ChatCompletionAssistantMessageParam
 
-	msg.ToolCalls = make([]openai.ChatCompletionMessageToolCallParam, len(m.Calls))
+	var texts []string
+	var calls []openai.ChatCompletionMessageToolCallParam
 
-	for i, v := range m.Calls {
-		msg.ToolCalls[i].ID = v.CallID
-		msg.ToolCalls[i].Function.Arguments = string(v.Arguments)
-		msg.ToolCalls[i].Function.Name = v.Name
+	// Extract text and tool use blocks
+	for _, block := range m.Content {
+		switch block.Type {
+		case agent.ContentBlockTypeText:
+			texts = append(texts, block.Text)
+		case agent.ContentBlockTypeToolUse:
+			calls = append(calls, openai.ChatCompletionMessageToolCallParam{
+				ID: block.ID,
+				Function: openai.ChatCompletionMessageToolCallFunctionParam{
+					Name:      block.Name,
+					Arguments: block.Arguments,
+				},
+			})
+		}
+	}
+
+	// Set content if there's any text
+	if len(texts) > 0 {
+		msg.Content = openai.ChatCompletionAssistantMessageParamContentUnion{OfString: param.NewOpt(strings.Join(texts, ""))}
+	}
+
+	// Set tool calls if there are any
+	if len(calls) > 0 {
+		msg.ToolCalls = calls
 	}
 
 	return openai.ChatCompletionMessageParamUnion{OfAssistant: &msg}
