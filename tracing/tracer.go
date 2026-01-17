@@ -3,6 +3,7 @@ package tracing
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -10,7 +11,6 @@ import (
 	"github.com/braintrustdata/braintrust-go"
 	"github.com/braintrustdata/braintrust-go/packages/param"
 	"github.com/braintrustdata/braintrust-go/shared"
-	"github.com/eolymp/go-packages/logger"
 	"github.com/google/uuid"
 )
 
@@ -87,7 +87,7 @@ func (t *Tracer) run() {
 			select {
 			case <-ticket.C:
 				if err := t.send(batch); err != nil {
-					logger.Warningf("Unable to upload tracing span buffer: %v", err)
+					slog.Warn("Unable to upload tracing span buffer", "error", err)
 
 					if strings.Contains(err.Error(), "400 Bad Request") {
 						batch = nil
