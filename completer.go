@@ -128,38 +128,33 @@ const (
 // ContentBlock represents a single content block in a message.
 // The Type field determines which other fields are populated.
 type ContentBlock struct {
-	// Type is the discriminator: ContentBlockTypeText or ContentBlockTypeToolUse
-	Type ContentBlockType
-
-	// Text content (populated when Type == ContentBlockTypeText)
-	Text string
-
-	// Tool use fields (populated when Type == ContentBlockTypeToolUse)
-	ID        string // unique identifier for the tool call
-	Name      string // name of the tool to call
-	Arguments string // JSON-formatted arguments for the tool
+	Type      ContentBlockType `json:"type"`
+	Text      string           `json:"text,omitempty"`
+	ID        string           `json:"id,omitempty"`
+	Name      string           `json:"name,omitempty"`
+	Arguments string           `json:"arguments,omitempty"`
 }
 
 // CompletionToolCall represents a tool call extracted from content blocks.
 // This is a convenience type for the agent to work with tool calls.
 type CompletionToolCall struct {
-	ID        string
-	Name      string
-	Arguments string
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments,omitempty"`
 }
 
 // CompletionUsage represents token usage information for a completion.
 type CompletionUsage struct {
 	// PromptTokens is the number of tokens in the prompt
-	PromptTokens int
+	PromptTokens int `json:"prompt_tokens,omitempty"`
 
 	// CompletionTokens is the number of tokens in the completion
-	CompletionTokens int
+	CompletionTokens int `json:"completion_tokens,omitempty"`
 
 	// TotalTokens is the total number of tokens used
-	TotalTokens int
+	TotalTokens int `json:"total_tokens,omitempty"`
 
 	// CachedPromptTokens is the number of prompt tokens served from cache
 	// (used for prompt caching features)
-	CachedPromptTokens int
+	CachedPromptTokens int `json:"cached_prompt_tokens,omitempty"`
 }

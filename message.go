@@ -12,13 +12,13 @@ type Message interface {
 }
 
 type ToolCall struct {
-	CallID    string
-	Name      string
-	Arguments []byte
+	CallID    string `json:"call_id"`
+	Name      string `json:"name"`
+	Arguments []byte `json:"arguments,omitempty"`
 }
 
 type SystemMessage struct {
-	Content string
+	Content string `json:"content"`
 }
 
 func (m SystemMessage) isMessage() {}
@@ -29,7 +29,7 @@ func NewSystemMessage(text string) SystemMessage {
 }
 
 type AssistantMessage struct {
-	Content []ContentBlock
+	Content []ContentBlock `json:"content"`
 }
 
 func (m AssistantMessage) isMessage() {}
@@ -58,12 +58,12 @@ func NewAssistantMessage(text ...string) AssistantMessage {
 	for i, t := range text {
 		content[i] = ContentBlock{Type: ContentBlockTypeText, Text: t}
 	}
-	
+
 	return AssistantMessage{Content: content}
 }
 
 type UserMessage struct {
-	Content string
+	Content string `json:"content"`
 }
 
 func (m UserMessage) isMessage() {}
@@ -74,8 +74,8 @@ func NewUserMessage(text string) UserMessage {
 }
 
 type ToolResult struct {
-	CallID string
-	Result any
+	CallID string `json:"call_id"`
+	Result any    `json:"result"`
 }
 
 func (c ToolResult) isMessage() {}
@@ -100,8 +100,8 @@ func NewToolResult(callID string, result any) ToolResult {
 }
 
 type ToolError struct {
-	CallID string
-	Error  error
+	CallID string `json:"call_id"`
+	Error  error  `json:"error"`
 }
 
 func (c ToolError) isMessage() {}
