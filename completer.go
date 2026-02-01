@@ -103,7 +103,7 @@ type CompletionRequest struct {
 // CompletionResponse represents a provider-agnostic chat completion response.
 type CompletionResponse struct {
 	// Message contains the generated message
-	Content []ContentBlock
+	Content []AssistantMessageBlock
 
 	// FinishReason indicates why generation stopped
 	FinishReason FinishReason
@@ -113,34 +113,6 @@ type CompletionResponse struct {
 
 	// Model is the actual model used for generation
 	Model string
-}
-
-// ContentBlockType represents the type of content block.
-type ContentBlockType string
-
-const (
-	// ContentBlockTypeText represents a text content block
-	ContentBlockTypeText ContentBlockType = "text"
-	// ContentBlockTypeToolUse represents a tool use content block
-	ContentBlockTypeToolUse ContentBlockType = "tool_use"
-)
-
-// ContentBlock represents a single content block in a message.
-// The Type field determines which other fields are populated.
-type ContentBlock struct {
-	Type      ContentBlockType `json:"type"`
-	Text      string           `json:"text,omitempty"`
-	ID        string           `json:"id,omitempty"`
-	Name      string           `json:"name,omitempty"`
-	Arguments string           `json:"arguments,omitempty"`
-}
-
-// CompletionToolCall represents a tool call extracted from content blocks.
-// This is a convenience type for the agent to work with tool calls.
-type CompletionToolCall struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Arguments string `json:"arguments,omitempty"`
 }
 
 // CompletionUsage represents token usage information for a completion.

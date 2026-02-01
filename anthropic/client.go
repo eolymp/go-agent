@@ -75,14 +75,13 @@ func toAnthropicRequest(req agent.CompletionRequest) anthropic.MessageNewParams 
 		case agent.AssistantMessage:
 			content := make([]anthropic.ContentBlockParamUnion, len(m.Content))
 			for i, block := range m.Content {
-				switch block.Type {
-				case agent.ContentBlockTypeText:
-					content[i] = anthropic.NewTextBlock(block.Text)
-
-				case agent.ContentBlockTypeToolUse:
+				switch {
+				case block.Call != nil:
 					var input map[string]interface{}
-					_ = json.Unmarshal([]byte(block.Arguments), &input)
-					content[i] = anthropic.NewToolUseBlock(block.ID, input, block.Name)
+					_ = json.Unmarshal([]byte(block.Call.Arguments), &input)
+					content[i] = anthropic.NewToolUseBlock(block.Call.ID, input, block.Call.Name)
+				case block.Text != "":
+					content[i] = anthropic.NewTextBlock(block.Text)
 				}
 			}
 
@@ -133,7 +132,7 @@ func toAnthropicRequest(req agent.CompletionRequest) anthropic.MessageNewParams 
 func fromAnthropicResponse(resp *anthropic.Message) *agent.CompletionResponse {
 	ar := &agent.CompletionResponse{
 		Model:        string(resp.Model),
-		Content:      make([]agent.ContentBlock, len(resp.Content)),
+		Content:      make([]agent.AssistantMessageBlock, len(resp.Content)),
 		FinishReason: mapFinishReason(resp.StopReason),
 		Usage: agent.CompletionUsage{
 			PromptTokens:       int(resp.Usage.InputTokens),
@@ -146,16 +145,16 @@ func fromAnthropicResponse(resp *anthropic.Message) *agent.CompletionResponse {
 	for i, b := range resp.Content {
 		switch b.Type {
 		case "text":
-			ar.Content[i] = agent.ContentBlock{
-				Type: agent.ContentBlockTypeText,
+			ar.Content[i] = agent.AssistantMessageBlock{
 				Text: b.Text,
 			}
 		case "tool_use":
-			ar.Content[i] = agent.ContentBlock{
-				Type:      agent.ContentBlockTypeToolUse,
-				ID:        b.ID,
-				Name:      b.Name,
-				Arguments: string(b.Input),
+			ar.Content[i] = agent.AssistantMessageBlock{
+				Call: &agent.ToolCall{
+					ID:        b.ID,
+					Name:      b.Name,
+					Arguments: string(b.Input),
+				},
 			}
 		}
 	}

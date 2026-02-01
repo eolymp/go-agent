@@ -17,10 +17,11 @@ type Agent struct {
 	tools       Toolset
 	memory      Memory
 	prompt      PromptLoader
-	values      map[string]any                        // value for system prompt substitutions
-	model       string                                // default model to use
-	models      map[string]string                     // model name mapping
-	iterations  int                                   // maximum number of iterations for agentic loop
+	values      map[string]any    // value for system prompt substitutions
+	model       string            // default model to use
+	models      map[string]string // model name mapping
+	iterations  int               // maximum number of iterations for agentic loop
+	approver    []func(call ToolCall) ToolCallApproval
 	normalizer  []func(reply *AssistantMessage)       // agent output is expected to be structured, the system will retry if LLM produces non-json output
 	finalizer   []func(reply *AssistantMessage) error // agent output is expected to be structured, the system will retry if LLM produces non-json output
 }
@@ -46,7 +47,21 @@ func New(name string, prompt PromptLoader, opts ...Option) *Agent {
 	return a
 }
 
+func (a Agent) Name() string {
+	return a.name
+}
+
+func (a Agent) Memory() Memory {
+	return a.memory
+}
+
+// Ask is deprecated, use Run instead.
 func (a Agent) Ask(ctx context.Context, opts ...Option) (err error) {
+	_, err = a.Run(ctx, opts...)
+	return err
+}
+
+func (a Agent) Run(ctx context.Context, opts ...Option) (reply AssistantMessage, err error) {
 	c := a
 	for _, opt := range opts {
 		opt(&c)
@@ -60,9 +75,9 @@ func (a Agent) Ask(ctx context.Context, opts ...Option) (err error) {
 	var model = c.model
 
 	if c.prompt != nil {
-		prompt, err = a.prompt.Load(ctx)
+		prompt, err = c.prompt.Load(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to load prompt: %w", err)
+			return reply, fmt.Errorf("failed to load prompt: %w", err)
 		}
 
 		if prompt.Model != "" {
@@ -72,6 +87,13 @@ func (a Agent) Ask(ctx context.Context, opts ...Option) (err error) {
 		span.SetMetadata("model", model)
 		span.SetMetadata("prompt_name", prompt.Name)
 		span.SetMetadata("prompt_version", prompt.Version)
+	}
+
+	// if last message is from assistant, try calling tools
+	if last, ok := LastMessageAsAssistant(c.memory); ok {
+		if err := c.call(ctx, last); err != nil {
+			return last, err
+		}
 	}
 
 loop:
@@ -88,58 +110,46 @@ loop:
 			messages = append(messages, message)
 		}
 
-		req := CompletionRequest{
+		resp, err := c.complete(ctx, CompletionRequest{
 			Model:             model,
 			Messages:          messages,
 			Tools:             tools,
 			ParallelToolCalls: true,
 			ToolChoice:        ToolChoiceAuto,
-		}
+		})
 
-		resp, err := c.complete(ctx, req)
 		if err != nil {
-			return err
+			return reply, err
 		}
 
-		// Store the assistant message with all content blocks
-		reply := AssistantMessage{Content: resp.Content}
+		// convert completion response to assistant message
+		reply = AssistantMessage{Content: resp.Content}
 
-		// Extract text and tool calls from content blocks
+		if err := c.memory.Append(ctx, reply); err != nil {
+			return reply, err
+		}
+
 		switch resp.FinishReason {
 		case FinishReasonToolCalls:
-			var calls []CompletionToolCall
-
-			for _, block := range resp.Content {
-				if block.Type == ContentBlockTypeToolUse {
-					calls = append(calls, CompletionToolCall{ID: block.ID, Name: block.Name, Arguments: block.Arguments})
-				}
-			}
-
-			// Append assistant message with all content blocks (text + tool calls)
-			c.memory.Append(reply)
-
-			if err := c.callTools(ctx, calls); err != nil {
-				var ho Handoff
-				if errors.As(err, &ho) {
-					return ho.Agent.Ask(ctx, WithMemory(c.memory))
-				}
-
-				return err
+			// call tools
+			if err := c.call(ctx, reply); err != nil {
+				return reply, err
 			}
 
 			continue
 		default:
 			// first normalize response
-			for _, nn := range c.normalizer {
-				nn(&reply)
+			for _, n := range c.normalizer {
+				n(&reply)
 			}
 
-			c.memory.Append(reply)
-
 			// make sure all finalizers are ok with the response
-			for _, ff := range c.finalizer {
-				if err := ff(&reply); err != nil {
-					c.memory.Append(NewUserMessage("ERROR: " + err.Error()))
+			for _, f := range c.finalizer {
+				if err := f(&reply); err != nil {
+					if err := c.memory.Append(ctx, NewUserMessage("ERROR: "+err.Error())); err != nil {
+						return reply, err
+					}
+
 					continue loop
 				}
 			}
@@ -148,7 +158,7 @@ loop:
 		break
 	}
 
-	return nil
+	return reply, nil
 }
 
 func (a Agent) complete(ctx context.Context, req CompletionRequest) (resp *CompletionResponse, err error) {
@@ -173,11 +183,38 @@ func (a Agent) complete(ctx context.Context, req CompletionRequest) (resp *Compl
 	return resp, nil
 }
 
-func (a Agent) callTools(ctx context.Context, calls []CompletionToolCall) error {
+func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
+	var calls []ToolCall
+	var undecided []ToolCall
+	approved := map[string]bool{}
+
+	// verify approvals for tool calls
+	for _, block := range reply.Content {
+		if block.Call == nil {
+			continue
+		}
+
+		calls = append(calls, *block.Call)
+
+		switch a.approve(*block.Call) {
+		case ToolCallUndecided:
+			undecided = append(undecided, *block.Call)
+		case ToolCallApproved:
+			approved[block.Call.ID] = true
+		default:
+			continue
+		}
+	}
+
+	if len(undecided) > 0 {
+		return ToolApprovalRequest{Calls: undecided}
+	}
+
+	// execute all tool calls
+	results := make([]Message, len(calls))
+
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.SetLimit(5)
-
-	results := make([]Message, len(calls))
 
 	for index, call := range calls {
 		index, call := index, call
@@ -186,19 +223,26 @@ func (a Agent) callTools(ctx context.Context, calls []CompletionToolCall) error 
 			span, ctx := tracing.StartSpan(ctx, fmt.Sprintf("tool_call %q", call.Name), tracing.Kind(tracing.SpanTool), tracing.Input(json.RawMessage(call.Arguments)))
 			defer span.Close()
 
-			res, err := a.tools.Call(ctx, call.Name, []byte(call.Arguments))
-			if errors.As(err, &Handoff{}) {
-				return err
+			var result any
+
+			if approved[call.ID] {
+				result, err = a.tools.Call(ctx, call.Name, []byte(call.Arguments))
+			} else {
+				err = errors.New("tool call has been rejected by the user")
 			}
 
 			if err != nil {
-				results[index] = NewToolError(call.ID, err)
 				span.SetError(err)
+				if errors.As(err, &Handoff{}) {
+					return err
+				}
+
+				results[index] = NewToolError(call.ID, err)
 				return nil
 			}
 
-			results[index] = NewToolResult(call.ID, res)
-			span.SetOutput(res)
+			span.SetOutput(result)
+			results[index] = NewToolResult(call.ID, result)
 
 			return nil
 		})
@@ -208,19 +252,37 @@ func (a Agent) callTools(ctx context.Context, calls []CompletionToolCall) error 
 		return err
 	}
 
+	// write down tool execution results
+	var errs []error
 	for _, result := range results {
-		a.memory.Append(result)
+		if err := a.memory.Append(ctx, result); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 
 	return nil
 }
 
-// Memory provides access to agent's memory
-// todo: not sure should be exposed
-func (a Agent) Memory() Memory {
-	return a.memory
-}
+func (a Agent) approve(call ToolCall) ToolCallApproval {
+	approved := false
+	for _, p := range a.approver {
+		switch p(call) {
+		case ToolCallRejected: // reject immediately
+			return ToolCallRejected
+		case ToolCallApproved:
+			approved = true
+		default:
+			continue
+		}
+	}
 
-func (a Agent) Name() string {
-	return a.name
+	if approved {
+		return ToolCallApproved
+	}
+
+	return ToolCallUndecided
 }

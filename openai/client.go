@@ -125,24 +125,24 @@ func mapFinishReason(reason string) agent.FinishReason {
 }
 
 // fromOpenAIContent converts OpenAI content and tool calls to content blocks.
-func fromOpenAIContent(content string, toolCalls []openai.ChatCompletionMessageToolCall) []agent.ContentBlock {
-	var blocks []agent.ContentBlock
+func fromOpenAIContent(content string, toolCalls []openai.ChatCompletionMessageToolCall) []agent.AssistantMessageBlock {
+	var blocks []agent.AssistantMessageBlock
 
 	// Add text block if content is not empty
 	if content != "" {
-		blocks = append(blocks, agent.ContentBlock{
-			Type: agent.ContentBlockTypeText,
+		blocks = append(blocks, agent.AssistantMessageBlock{
 			Text: content,
 		})
 	}
 
 	// Add tool use blocks for each tool call
 	for _, call := range toolCalls {
-		blocks = append(blocks, agent.ContentBlock{
-			Type:      agent.ContentBlockTypeToolUse,
-			ID:        call.ID,
-			Name:      call.Function.Name,
-			Arguments: call.Function.Arguments,
+		blocks = append(blocks, agent.AssistantMessageBlock{
+			Call: &agent.ToolCall{
+				ID:        call.ID,
+				Name:      call.Function.Name,
+				Arguments: call.Function.Arguments,
+			},
 		})
 	}
 
@@ -190,17 +190,17 @@ func assistantMessageToOpenAI(m agent.AssistantMessage) openai.ChatCompletionMes
 
 	// Extract text and tool use blocks
 	for _, block := range m.Content {
-		switch block.Type {
-		case agent.ContentBlockTypeText:
-			texts = append(texts, block.Text)
-		case agent.ContentBlockTypeToolUse:
+		switch {
+		case block.Call != nil:
 			calls = append(calls, openai.ChatCompletionMessageToolCallParam{
-				ID: block.ID,
+				ID: block.Call.ID,
 				Function: openai.ChatCompletionMessageToolCallFunctionParam{
-					Name:      block.Name,
-					Arguments: block.Arguments,
+					Name:      block.Call.Name,
+					Arguments: block.Call.Arguments,
 				},
 			})
+		case block.Text != "":
+			texts = append(texts, block.Text)
 		}
 	}
 

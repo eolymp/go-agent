@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -20,29 +21,25 @@ func NewFileMemory(fn string, m Memory) *FileMemory {
 }
 
 func (m *FileMemory) Close() {
-	m.f.Close()
+	_ = m.f.Close()
 }
 
-func (m *FileMemory) Append(msg Message) {
+func (m *FileMemory) Append(ctx context.Context, msg Message) error {
 	switch v := msg.(type) {
 	case SystemMessage:
-		fmt.Fprintln(m.f, "System: ", v.Content)
+		_, _ = fmt.Fprintln(m.f, "System: ", v.Content)
 	case UserMessage:
-		fmt.Fprintln(m.f, "User: ", v.Content)
+		_, _ = fmt.Fprintln(m.f, "User: ", v.Content)
 	case AssistantMessage:
-		fmt.Fprintln(m.f, "Assistant: ", v.Text())
+		_, _ = fmt.Fprintln(m.f, "Assistant: ", v.Text())
 	case ToolResult:
 		data, _ := json.Marshal(v.Result)
-		fmt.Fprintln(m.f, "Tool result: ", string(data))
+		_, _ = fmt.Fprintln(m.f, "Call result: ", string(data))
 	case ToolError:
-		fmt.Fprintln(m.f, "Tool error: ", v.Error)
+		_, _ = fmt.Fprintln(m.f, "Call error: ", v.Error)
 	}
 
-	m.m.Append(msg)
-}
-
-func (m *FileMemory) Last() Message {
-	return m.m.Last()
+	return m.m.Append(ctx, msg)
 }
 
 func (m *FileMemory) List() []Message {

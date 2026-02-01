@@ -76,10 +76,16 @@ func WithSpecialistTool(agents ...*Agent) Option {
 					}
 
 					m := NewStaticMemory()
-					m.Append(NewAssistantMessage("The summary of the conversation so far:\n" + req.Context))
-					m.Append(NewUserMessage(req.Task))
 
-					if err := a.Ask(ctx, WithMemory(m)); err != nil {
+					if err := m.Append(ctx, NewAssistantMessage("The summary of the conversation so far:\n"+req.Context)); err != nil {
+						return nil, err
+					}
+
+					if err := m.Append(ctx, NewUserMessage(req.Task)); err != nil {
+						return nil, err
+					}
+
+					if _, err := a.Run(ctx, WithMemory(m)); err != nil {
 						return nil, fmt.Errorf("failed to ask specialist %q: %w", req.Specialist, err)
 					}
 

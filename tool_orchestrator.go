@@ -100,15 +100,21 @@ func WithOrchestratorTool(agents ...*Agent) Option {
 				}
 
 				m := NewStaticMemory()
-				m.Append(NewAssistantMessage(req.Context))
-				m.Append(NewUserMessage("You have to perform the task described below and call `complete_task` to communicate the results. \n\nThe task: " + task.Task))
+				
+				if err := m.Append(ctx, NewAssistantMessage(req.Context)); err != nil {
+					return nil, err
+				}
+				
+				if err := m.Append(ctx, NewUserMessage("You have to perform the task described below and call `complete_task` to communicate the results. \n\nThe task: " + task.Task)); err != nil {
+					return nil, err
+				}
 
 				complete := func(s, r string) {
 					todo[idx].Status = s
 					todo[idx].Outcome = r
 				}
 
-				if err := agent.Ask(ctx, WithMemory(m), withCompletionTool(complete)); err != nil {
+				if _, err := agent.Run(ctx, WithMemory(m), withCompletionTool(complete)); err != nil {
 					todo[idx].Status = "FAILED"
 					todo[idx].Outcome = "ERROR: " + err.Error()
 					break

@@ -1,6 +1,9 @@
 package agent
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 // StaticMemory keeps all messages in-memory.
 type StaticMemory struct {
@@ -12,11 +15,12 @@ func NewStaticMemory() *StaticMemory {
 	return &StaticMemory{}
 }
 
-func (m *StaticMemory) Append(msg Message) {
+func (m *StaticMemory) Append(ctx context.Context, msg Message) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
 	m.messages = append(m.messages, msg)
+	return nil
 }
 
 func (m *StaticMemory) List() []Message {
@@ -24,15 +28,4 @@ func (m *StaticMemory) List() []Message {
 	defer m.lock.Unlock()
 
 	return m.messages
-}
-
-func (m *StaticMemory) Last() Message {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	if len(m.messages) == 0 {
-		return nil
-	}
-
-	return m.messages[len(m.messages)-1]
 }

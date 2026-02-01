@@ -25,7 +25,7 @@ func renderMessage(name string, m Message, values map[string]any) Message {
 		c := x
 		// Render text blocks in content
 		for i := range c.Content {
-			if c.Content[i].Type == ContentBlockTypeText {
+			if c.Content[i].Text != "" {
 				c.Content[i].Text = mustache.Render(c.Content[i].Text, values)
 			}
 		}

@@ -1,52 +1,32 @@
 package agent
 
 import (
-	"sync"
+	"context"
 )
 
 // Memory provides a memorization capability for an agent.
 type Memory interface {
-	Last() Message
 	List() []Message
-	Append(m Message)
+	Append(ctx context.Context, m Message) error
 }
 
-// ForgetfulMemory keeps memory for the last user message, every new user message erases all memories.
-type ForgetfulMemory struct {
-	lock     sync.Mutex
-	messages []Message
-}
-
-func NewForgetfulMemory() *ForgetfulMemory {
-	return &ForgetfulMemory{}
-}
-
-func (m *ForgetfulMemory) Append(msg Message) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	// reset previous memories once new user message is added
-	if _, ok := msg.(UserMessage); ok {
-		m.messages = nil
+func LastMessage(memory Memory) (Message, bool) {
+	messages := memory.List()
+	if len(messages) == 0 {
+		return nil, false
 	}
 
-	m.messages = append(m.messages, msg)
+	return messages[len(messages)-1], true
 }
 
-func (m *ForgetfulMemory) List() []Message {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	return m.messages
+func LastMessageAsAssistant(memory Memory) (AssistantMessage, bool) {
+	last, _ := LastMessage(memory)
+	am, ok := last.(AssistantMessage)
+	return am, ok
 }
 
-func (m *ForgetfulMemory) Last() Message {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	if len(m.messages) == 0 {
-		return nil
-	}
-
-	return m.messages[len(m.messages)-1]
+func LastMessageAsUser(memory Memory) (UserMessage, bool) {
+	last, _ := LastMessage(memory)
+	um, ok := last.(UserMessage)
+	return um, ok
 }

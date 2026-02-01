@@ -92,3 +92,64 @@ func WithFinalizer(ff ...func(*AssistantMessage) error) Option {
 		a.finalizer = append(a.finalizer, ff...)
 	}
 }
+
+func WithApprover(aa ...func(call ToolCall) ToolCallApproval) Option {
+	return func(a *Agent) {
+		a.approver = append(a.approver, aa...)
+	}
+}
+
+// WithApprovals creates approver which approves specific calls
+func WithApprovals(calls ...string) Option {
+	m := map[string]bool{}
+	for _, call := range calls {
+		m[call] = true
+	}
+
+	return WithApprover(func(call ToolCall) ToolCallApproval {
+		if m[call.ID] {
+			return ToolCallApproved
+		}
+
+		return ToolCallUndecided
+	})
+}
+
+// WithRejections creates approver which rejects specific calls
+func WithRejections(calls ...string) Option {
+	m := map[string]bool{}
+	for _, call := range calls {
+		m[call] = true
+	}
+
+	return WithApprover(func(call ToolCall) ToolCallApproval {
+		if m[call.ID] {
+			return ToolCallRejected
+		}
+
+		return ToolCallUndecided
+	})
+}
+
+// WithAutoApproveAll creates approver which approves all calls automatically
+func WithAutoApproveAll() Option {
+	return WithApprover(func(call ToolCall) ToolCallApproval {
+		return ToolCallApproved
+	})
+}
+
+// WithAutoApproveTools creates approver which approves calls for specific tools automatically
+func WithAutoApproveTools(names ...string) Option {
+	m := map[string]bool{}
+	for _, name := range names {
+		m[name] = true
+	}
+
+	return WithApprover(func(call ToolCall) ToolCallApproval {
+		if m[call.Name] {
+			return ToolCallApproved
+		}
+
+		return ToolCallUndecided
+	})
+}
