@@ -217,20 +217,20 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 	// execute all tool calls
 	results := make([]Message, len(calls))
 
-	eg, ctx := errgroup.WithContext(ctx)
+	eg, gctx := errgroup.WithContext(ctx)
 	eg.SetLimit(5)
 
 	for index, call := range calls {
 		index, call := index, call
 
 		eg.Go(func() (err error) {
-			span, ctx := tracing.StartSpan(ctx, fmt.Sprintf("tool_call %q", call.Name), tracing.Kind(tracing.SpanTool), tracing.Input(json.RawMessage(call.Arguments)))
+			span, gctx := tracing.StartSpan(gctx, fmt.Sprintf("tool_call %q", call.Name), tracing.Kind(tracing.SpanTool), tracing.Input(json.RawMessage(call.Arguments)))
 			defer span.Close()
 
 			var result any
 
 			if approved[call.ID] {
-				result, err = a.tools.Call(ctx, call.Name, []byte(call.Arguments))
+				result, err = a.tools.Call(gctx, call.Name, []byte(call.Arguments))
 			} else {
 				err = errors.New("tool call has been rejected by the user")
 			}
