@@ -31,14 +31,141 @@ func NewWithClient(client anthropic.Client) *Completer {
 	return &Completer{client: client}
 }
 
-// Complete implements agent.ChatCompleter by delegating to the Anthropic client.
+// Complete implements ChatCompleter by delegating to the Anthropic client.
 func (c *Completer) Complete(ctx context.Context, req agent.CompletionRequest) (*agent.CompletionResponse, error) {
+	if req.StreamCallback != nil {
+		return c.stream(ctx, req)
+	}
+
 	resp, err := c.client.Messages.New(ctx, toAnthropicRequest(req))
 	if err != nil {
 		return nil, err
 	}
 
 	return fromAnthropicResponse(resp), nil
+}
+
+// stream handles streaming completion with callback support.
+func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*agent.CompletionResponse, error) {
+	stream := c.client.Messages.NewStreaming(ctx, toAnthropicRequest(req))
+	defer stream.Close()
+
+	resp := &agent.CompletionResponse{}
+	blocks := make(map[int]*agent.AssistantMessageBlock)
+
+	// Process stream events
+	for stream.Next() {
+		event := stream.Current()
+
+		switch event.Type {
+		case "message_start":
+			resp.Model = string(event.Message.Model)
+			resp.Usage.PromptTokens = int(event.Message.Usage.InputTokens)
+			resp.Usage.CachedPromptTokens = int(event.Message.Usage.CacheReadInputTokens)
+
+		case "content_block_start":
+			index := int(event.Index)
+			block := &agent.AssistantMessageBlock{}
+
+			switch event.ContentBlock.Type {
+			case "text":
+			case "tool_use":
+				block.Call = &agent.ToolCall{
+					ID:   event.ContentBlock.ID,
+					Name: event.ContentBlock.Name,
+				}
+
+				chunk := agent.StreamChunk{
+					Type:  agent.StreamChunkTypeToolCallStart,
+					Index: index,
+					Call:  block.Call,
+				}
+
+				if err := req.StreamCallback(ctx, chunk); err != nil {
+					return nil, err
+				}
+			}
+
+			blocks[index] = block
+
+		case "content_block_delta":
+			index := int(event.Index)
+			block := blocks[index]
+
+			switch event.Delta.Type {
+			case "text_delta":
+				block.Text += event.Delta.Text
+				chunk := agent.StreamChunk{
+					Type:  agent.StreamChunkTypeText,
+					Index: index,
+					Text:  event.Delta.Text,
+				}
+
+				if err := req.StreamCallback(ctx, chunk); err != nil {
+					return nil, err
+				}
+
+			case "input_json_delta":
+				block.Call.Arguments += event.Delta.PartialJSON
+				chunk := agent.StreamChunk{
+					Type:  agent.StreamChunkTypeToolCallDelta,
+					Index: index,
+					Call:  &agent.ToolCall{ID: block.Call.ID, Name: block.Call.Name, Arguments: event.Delta.PartialJSON},
+				}
+
+				if err := req.StreamCallback(ctx, chunk); err != nil {
+					return nil, err
+				}
+			}
+
+		case "content_block_stop":
+		case "message_delta":
+			resp.Usage.CompletionTokens = int(event.Usage.OutputTokens)
+			resp.Usage.TotalTokens = resp.Usage.PromptTokens + resp.Usage.CompletionTokens
+
+			if event.Delta.StopReason != "" {
+				resp.FinishReason = mapFinishReason(event.Delta.StopReason)
+			}
+
+			chunk := agent.StreamChunk{
+				Type:  agent.StreamChunkTypeUsage,
+				Usage: &resp.Usage,
+			}
+
+			if err := req.StreamCallback(ctx, chunk); err != nil {
+				return nil, err
+			}
+
+		case "message_stop":
+			reason := resp.FinishReason
+			chunk := agent.StreamChunk{
+				Type:         agent.StreamChunkTypeFinish,
+				FinishReason: reason,
+			}
+
+			if err := req.StreamCallback(ctx, chunk); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if err := stream.Err(); err != nil {
+		return nil, err
+	}
+
+	length := -1
+	for idx := range blocks {
+		if idx > length {
+			length = idx
+		}
+	}
+
+	resp.Content = make([]agent.AssistantMessageBlock, length+1)
+	for idx, block := range blocks {
+		resp.Content[idx] = *block
+	}
+
+	return resp, nil
 }
 
 // toAnthropicRequest converts a universal CompletionRequest to Anthropic-specific params.

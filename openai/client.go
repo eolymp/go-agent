@@ -11,7 +11,6 @@ import (
 	"github.com/openai/openai-go/packages/param"
 )
 
-// Completer implements agent.ChatCompleter using OpenAI's SDK.
 type Completer struct {
 	client openai.Client
 }
@@ -33,12 +32,146 @@ func NewWithClient(client openai.Client) *Completer {
 
 // Complete implements agent.ChatCompleter by delegating to the OpenAI client.
 func (c *Completer) Complete(ctx context.Context, req agent.CompletionRequest) (*agent.CompletionResponse, error) {
+	if req.StreamCallback != nil {
+		return c.stream(ctx, req)
+	}
+
 	resp, err := c.client.Chat.Completions.New(ctx, toOpenAIRequest(req))
 	if err != nil {
 		return nil, err
 	}
 
 	return fromOpenAIResponse(resp), nil
+}
+
+// stream handles streaming completion with callback support.
+func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*agent.CompletionResponse, error) {
+	stream := c.client.Chat.Completions.NewStreaming(ctx, toOpenAIRequest(req))
+
+	resp := &agent.CompletionResponse{}
+	calls := make(map[int]*agent.ToolCall)
+	var text strings.Builder
+
+	acc := openai.ChatCompletionAccumulator{}
+	for stream.Next() {
+		event := stream.Current()
+		acc.AddChunk(event)
+
+		if event.Model != "" && resp.Model == "" {
+			resp.Model = event.Model
+		}
+
+		if len(event.Choices) > 0 {
+			delta := event.Choices[0].Delta
+
+			if delta.Content != "" {
+				text.WriteString(delta.Content)
+
+				chunk := agent.StreamChunk{
+					Type: agent.StreamChunkTypeText,
+					Text: delta.Content,
+				}
+
+				if err := req.StreamCallback(ctx, chunk); err != nil {
+					return nil, err
+				}
+			}
+
+			// Handle tool call deltas
+			for _, tc := range delta.ToolCalls {
+				index := int(tc.Index)
+
+				if tc.Function.Name != "" {
+					calls[index] = &agent.ToolCall{
+						ID:   tc.ID,
+						Name: tc.Function.Name,
+					}
+
+					chunk := agent.StreamChunk{
+						Type:  agent.StreamChunkTypeToolCallStart,
+						Index: index + 1,
+						Call:  calls[index],
+					}
+
+					if err := req.StreamCallback(ctx, chunk); err != nil {
+						return nil, err
+					}
+				}
+
+				if tc.Function.Arguments != "" {
+					if c, ok := calls[index]; ok {
+						c.Arguments += tc.Function.Arguments
+						chunk := agent.StreamChunk{
+							Type:  agent.StreamChunkTypeToolCallDelta,
+							Index: index + 1,
+							Call: &agent.ToolCall{
+								ID:        c.ID,
+								Name:      c.Name,
+								Arguments: tc.Function.Arguments,
+							},
+						}
+
+						if err := req.StreamCallback(ctx, chunk); err != nil {
+							return nil, err
+						}
+					}
+				}
+			}
+
+			if event.Choices[0].FinishReason != "" {
+				resp.FinishReason = mapFinishReason(event.Choices[0].FinishReason)
+			}
+		}
+
+		resp.Usage.PromptTokens = int(event.Usage.PromptTokens)
+		resp.Usage.CompletionTokens = int(event.Usage.CompletionTokens)
+		resp.Usage.TotalTokens = int(event.Usage.TotalTokens)
+		resp.Usage.CachedPromptTokens = int(event.Usage.PromptTokensDetails.CachedTokens)
+
+		chunk := agent.StreamChunk{
+			Type:  agent.StreamChunkTypeUsage,
+			Usage: &resp.Usage,
+		}
+
+		if err := req.StreamCallback(ctx, chunk); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := stream.Err(); err != nil {
+		return nil, err
+	}
+
+	reason := resp.FinishReason
+	chunk := agent.StreamChunk{
+		Type:         agent.StreamChunkTypeFinish,
+		FinishReason: reason,
+	}
+
+	if err := req.StreamCallback(ctx, chunk); err != nil {
+		return nil, err
+	}
+
+	if text.Len() > 0 {
+		resp.Content = append(resp.Content, agent.AssistantMessageBlock{
+			Text: text.String(),
+		})
+	}
+
+	length := -1
+	for idx := range calls {
+		if idx > length {
+			length = idx
+		}
+	}
+
+	for i := 0; i <= length; i++ {
+		if tc := calls[i]; tc != nil {
+			resp.Content = append(resp.Content, agent.AssistantMessageBlock{Call: tc})
+		}
+	}
+
+	return resp, nil
 }
 
 // toOpenAIRequest converts a universal CompletionRequest to OpenAI-specific params.

@@ -169,6 +169,10 @@ func (a Agent) complete(ctx context.Context, req CompletionRequest) (resp *Compl
 		req.Model = m
 	}
 
+	if s, ok := a.memory.(StreamingMemory); ok {
+		req.StreamCallback = s.Chunk
+	}
+
 	resp, err = a.completer.Complete(ctx, req)
 	if err != nil {
 		return nil, err

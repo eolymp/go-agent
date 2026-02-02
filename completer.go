@@ -71,6 +71,42 @@ func (f FinishReason) String() string {
 	}
 }
 
+type StreamChunk struct {
+	Type         StreamChunkType
+	Index        int
+	Text         string
+	Call         *ToolCall
+	Usage        *CompletionUsage
+	FinishReason FinishReason
+}
+
+type StreamChunkType int
+
+const (
+	StreamChunkTypeText          StreamChunkType = iota // a text delta
+	StreamChunkTypeToolCallStart                        // the start of a new tool call (just call id and tool name)
+	StreamChunkTypeToolCallDelta                        // a delta in tool call arguments
+	StreamChunkTypeUsage                                // usage statistics update
+	StreamChunkTypeFinish                               // the completion has finished
+)
+
+func (s StreamChunkType) String() string {
+	switch s {
+	case StreamChunkTypeText:
+		return "text"
+	case StreamChunkTypeToolCallStart:
+		return "tool_call_start"
+	case StreamChunkTypeToolCallDelta:
+		return "tool_call_delta"
+	case StreamChunkTypeUsage:
+		return "usage"
+	case StreamChunkTypeFinish:
+		return "finish"
+	default:
+		return "unknown"
+	}
+}
+
 // CompletionRequest represents a provider-agnostic chat completion request.
 type CompletionRequest struct {
 	// Model is the identifier for the LLM model to use
@@ -98,6 +134,10 @@ type CompletionRequest struct {
 	// TopP controls nucleus sampling (optional)
 	// Typically ranges from 0.0 to 1.0
 	TopP *float64
+
+	// StreamCallback is called for each chunk during streaming (optional)
+	// If nil, streaming is disabled and the complete response is returned at once
+	StreamCallback func(ctx context.Context, chunk StreamChunk) error
 }
 
 // CompletionResponse represents a provider-agnostic chat completion response.
