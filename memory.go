@@ -11,7 +11,7 @@ type Memory interface {
 }
 
 type StreamingMemory interface {
-	Chunk(ctx context.Context, chunk StreamChunk) error
+	Stream(ctx context.Context, chunk StreamChunk) error
 }
 
 func LastMessage(memory Memory) (Message, bool) {

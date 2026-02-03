@@ -83,11 +83,13 @@ type StreamChunk struct {
 type StreamChunkType int
 
 const (
-	StreamChunkTypeText          StreamChunkType = iota // a text delta
-	StreamChunkTypeToolCallStart                        // the start of a new tool call (just call id and tool name)
-	StreamChunkTypeToolCallDelta                        // a delta in tool call arguments
-	StreamChunkTypeUsage                                // usage statistics update
-	StreamChunkTypeFinish                               // the completion has finished
+	StreamChunkTypeText             StreamChunkType = iota // a text delta
+	StreamChunkTypeToolCallStart                           // the start of a new tool call (just call id and tool name)
+	StreamChunkTypeToolCallDelta                           // a delta in tool call arguments
+	StreamChunkTypeToolCallExecute                         // a tool is being executed (comes from agent, not LLM)
+	StreamChunkTypeToolCallComplete                        // a tool has finished (comes from agent, not LLM)
+	StreamChunkTypeUsage                                   // usage statistics update
+	StreamChunkTypeFinish                                  // the completion has finished
 )
 
 func (s StreamChunkType) String() string {

@@ -170,7 +170,7 @@ func (a Agent) complete(ctx context.Context, req CompletionRequest) (resp *Compl
 	}
 
 	if s, ok := a.memory.(StreamingMemory); ok {
-		req.StreamCallback = s.Chunk
+		req.StreamCallback = s.Stream
 	}
 
 	resp, err = a.completer.Complete(ctx, req)
@@ -188,7 +188,6 @@ func (a Agent) complete(ctx context.Context, req CompletionRequest) (resp *Compl
 }
 
 func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
-	var calls []ToolCall
 	var undecided []ToolCall
 	approved := map[string]bool{}
 
@@ -197,8 +196,6 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 		if block.Call == nil {
 			continue
 		}
-
-		calls = append(calls, *block.Call)
 
 		switch a.approve(*block.Call) {
 		case ToolCallUndecided:
@@ -215,17 +212,27 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 	}
 
 	// execute all tool calls
-	results := make([]Message, len(calls))
+	results := make([]Message, len(reply.Content))
 
 	eg, gctx := errgroup.WithContext(ctx)
 	eg.SetLimit(5)
 
-	for index, call := range calls {
-		index, call := index, call
+	for index, block := range reply.Content {
+		if block.Call == nil {
+			continue
+		}
 
+		index, call := index, *block.Call
 		eg.Go(func() (err error) {
 			span, gctx := tracing.StartSpan(gctx, fmt.Sprintf("tool_call %q", call.Name), tracing.Kind(tracing.SpanTool), tracing.Input(json.RawMessage(call.Arguments)))
 			defer span.Close()
+
+			if s, ok := a.memory.(StreamingMemory); ok {
+				_ = s.Stream(ctx, StreamChunk{Type: StreamChunkTypeToolCallExecute, Index: index, Call: &ToolCall{ID: call.ID, Name: call.Name}})
+				defer func() {
+					_ = s.Stream(ctx, StreamChunk{Type: StreamChunkTypeToolCallComplete, Index: index, Call: &ToolCall{ID: call.ID, Name: call.Name}})
+				}()
+			}
 
 			var result any
 
@@ -259,6 +266,10 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 	// write down tool execution results
 	var errs []error
 	for _, result := range results {
+		if result == nil {
+			continue
+		}
+
 		if err := a.memory.Append(ctx, result); err != nil {
 			errs = append(errs, err)
 		}
