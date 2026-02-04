@@ -19,21 +19,23 @@ type Agent struct {
 	prompt      PromptLoader
 	values      map[string]any    // value for system prompt substitutions
 	model       string            // default model to use
-	models      map[string]string // model name mapping
-	iterations  int               // maximum number of iterations for agentic loop
-	approver    []func(call ToolCall) ToolCallApproval
+	models         map[string]string // model name mapping
+	iterations     int               // maximum number of iterations for agentic loop
+	toolParallelism int              // maximum number of parallel tool executions (default 5, 0=sequential, <0=unlimited)
+	approver       []func(call ToolCall) ToolCallApproval
 	normalizer  []func(reply *AssistantMessage)       // agent output is expected to be structured, the system will retry if LLM produces non-json output
 	finalizer   []func(reply *AssistantMessage) error // agent output is expected to be structured, the system will retry if LLM produces non-json output
 }
 
 func New(name string, prompt PromptLoader, opts ...Option) *Agent {
 	a := &Agent{
-		completer:  defaultCompleter,
-		name:       name,
-		prompt:     prompt,
-		iterations: 120,
-		tools:      NewStaticToolset(),
-		memory:     NewStaticMemory(),
+		completer:       defaultCompleter,
+		name:            name,
+		prompt:          prompt,
+		iterations:      120,
+		toolParallelism: 5,
+		tools:           NewStaticToolset(),
+		memory:          NewStaticMemory(),
 	}
 
 	for _, opt := range opts {
@@ -114,7 +116,7 @@ loop:
 			Model:             model,
 			Messages:          messages,
 			Tools:             tools,
-			ParallelToolCalls: true,
+			ParallelToolCalls: c.toolParallelism != 1 && c.toolParallelism != 0,
 			ToolChoice:        ToolChoiceAuto,
 		})
 
@@ -215,7 +217,7 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 	results := make([]Message, len(reply.Content))
 
 	eg, gctx := errgroup.WithContext(ctx)
-	eg.SetLimit(5)
+	eg.SetLimit(a.toolParallelism)
 
 	for index, block := range reply.Content {
 		if block.Call == nil {

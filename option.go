@@ -99,6 +99,12 @@ func WithApprover(aa ...func(call ToolCall) ToolCallApproval) Option {
 	}
 }
 
+func WithToolParallelism(limit int) Option {
+	return func(a *Agent) {
+		a.toolParallelism = limit
+	}
+}
+
 // WithApprovals creates approver which approves specific calls
 func WithApprovals(calls ...string) Option {
 	m := map[string]bool{}
