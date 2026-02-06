@@ -11,34 +11,33 @@ import (
 )
 
 type Agent struct {
-	completer       ChatCompleter
-	name            string
-	description     string
-	tools           Toolset
-	memory          Memory
-	prompt          PromptLoader
-	values          map[string]any
-	model           string
-	models          map[string]string
-	iterations      int
-	toolParallelism int
-	betas           []string
-	container       *Container
-	thinking        *ThinkingConfig
-	approver        []func(call ToolCall) ToolCallApproval
-	normalizer      []func(reply *AssistantMessage)       // agent output is expected to be structured, the system will retry if LLM produces non-json output
-	finalizer       []func(reply *AssistantMessage) error // agent output is expected to be structured, the system will retry if LLM produces non-json output
+	completer   ChatCompleter                          // chat completer used to complete agentic request
+	name        string                                 // agent name
+	description string                                 // agent description
+	tools       Toolset                                // toolset for the agent
+	memory      Memory                                 // memory provides a backend for storing conversation history between turns
+	messages    []Message                              // list of starter messages are added before the messages from memory, this is normally a system message
+	model       string                                 // model to be used for completion
+	models      map[string]string                      // additional mapping for model name (probably should be in completer :thinking:...)
+	iterations  int                                    // max number of iterations for agentic loop
+	parallelism int                                    // number of tool calls executed in parallel, 1 - sequential run, -1 - no limit on parallelism
+	betas       []string                               // additional flags to enable beta features
+	container   *Container                             // container to be used for LLM (only available in Anthropic models)
+	thinking    *ThinkingConfig                        // thinking configuration (only supported by Anthropic models)
+	loaders     []OptionLoader                         // lazy loaded options are loaded just before executing agentic loop to define dynamic parameters (load from an external backend)
+	approver    []func(call ToolCall) ToolCallApproval // approvers automatically approve tool calls
+	normalizer  []func(reply *AssistantMessage)        // normalizers modify final message to normalize it (mostly strip ```json tags in structured responses)
+	finalizer   []func(reply *AssistantMessage) error  // finalizers run with final message to ensure it matches expected value, if finalizer returns error, it's added as user message and an additional turn is executed automatically
 }
 
-func New(name string, prompt PromptLoader, opts ...Option) *Agent {
+func New(name string, opts ...Option) *Agent {
 	a := &Agent{
-		completer:       defaultCompleter,
-		name:            name,
-		prompt:          prompt,
-		iterations:      120,
-		toolParallelism: 5,
-		tools:           NewStaticToolset(),
-		memory:          NewStaticMemory(),
+		completer:   defaultCompleter,
+		name:        name,
+		iterations:  120,
+		parallelism: 5,
+		tools:       NewStaticToolset(),
+		memory:      NewStaticMemory(),
 	}
 
 	for _, opt := range opts {
@@ -75,26 +74,16 @@ func (a Agent) Run(ctx context.Context, opts ...Option) (reply AssistantMessage,
 	span, ctx := tracing.StartSpan(ctx, fmt.Sprintf("agent %q", c.name), tracing.Kind(tracing.SpanTask))
 	defer span.CloseWithError(err)
 
-	var tools = c.tools.List()
-	var prompt *Prompt
-	var model = c.model
-
-	if c.prompt != nil {
-		prompt, err = c.prompt.Load(ctx)
-		if err != nil {
-			return reply, fmt.Errorf("failed to load prompt: %w", err)
+	for _, loader := range c.loaders {
+		if err := loader(ctx, &c); err != nil {
+			return reply, fmt.Errorf("failed to load options: %w", err)
 		}
-
-		if prompt.Model != "" {
-			model = prompt.Model
-		}
-
-		span.SetMetadata("model", model)
-		span.SetMetadata("prompt_name", prompt.Name)
-		span.SetMetadata("prompt_version", prompt.Version)
 	}
 
-	// if last message is from assistant, try calling tools
+	var tools = c.tools.List()
+	var model = c.model
+
+	// run tool calls, if previous loop ended with unapproved tool calls
 	if last, ok := LastMessageAsAssistant(c.memory); ok {
 		if err := c.call(ctx, last); err != nil {
 			return last, err
@@ -104,12 +93,7 @@ func (a Agent) Run(ctx context.Context, opts ...Option) (reply AssistantMessage,
 loop:
 	for i := 0; i < c.iterations; i++ {
 		var messages []Message
-
-		if prompt != nil {
-			for _, p := range prompt.Messages {
-				messages = append(messages, renderMessage(c.name, p, c.values))
-			}
-		}
+		messages = append(messages, c.messages...)
 
 		for _, message := range c.memory.List() {
 			messages = append(messages, message)
@@ -119,7 +103,7 @@ loop:
 			Model:             model,
 			Messages:          messages,
 			Tools:             tools,
-			ParallelToolCalls: c.toolParallelism != 1 && c.toolParallelism != 0,
+			ParallelToolCalls: c.parallelism != 1 && c.parallelism != 0,
 			ToolChoice:        ToolChoiceAuto,
 			Container:         c.container,
 			Betas:             c.betas,
@@ -224,7 +208,7 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 	results := make([]Message, len(reply.Content))
 
 	eg, gctx := errgroup.WithContext(ctx)
-	eg.SetLimit(a.toolParallelism)
+	eg.SetLimit(a.parallelism)
 
 	for index, block := range reply.Content {
 		if block.Call == nil {

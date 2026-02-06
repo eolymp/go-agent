@@ -1,4 +1,4 @@
-package prompting
+package braintrust
 
 import (
 	"context"

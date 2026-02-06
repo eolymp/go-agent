@@ -1,12 +1,16 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
 )
 
 type Option func(*Agent)
+
+// OptionLoader is called in the beginning of the agentic loop to load dynamic options
+type OptionLoader func(ctx context.Context, agent *Agent) error
 
 func WithMemory(memory Memory) Option {
 	return func(a *Agent) {
@@ -32,23 +36,49 @@ func WithDescription(desc string) Option {
 	}
 }
 
-// WithChatCompleter sets a custom ChatCompleter implementation.
-// This is the preferred method for testing and custom implementations.
 func WithChatCompleter(completer ChatCompleter) Option {
 	return func(a *Agent) {
 		a.completer = completer
 	}
 }
 
-func WithValues(values map[string]any) Option {
+// SystemPrompt is for backwards compatibility
+// Deprecated, use WithSystemMessage instead
+func SystemPrompt(text string) Option {
 	return func(a *Agent) {
-		if a.values == nil {
-			a.values = make(map[string]any, len(values))
-		}
+		a.messages = append(a.messages, SystemMessage{Content: text})
+	}
+}
 
-		for k, v := range values {
-			a.values[k] = v
-		}
+func WithSystemMessage(text string) Option {
+	return func(a *Agent) {
+		a.messages = append(a.messages, SystemMessage{Content: text})
+	}
+}
+
+func WithUserMessage(text string) Option {
+	return func(a *Agent) {
+		a.messages = append(a.messages, UserMessage{Content: text})
+	}
+}
+
+func WithAssistantMessage(text string) Option {
+	return func(a *Agent) {
+		a.messages = append(a.messages, AssistantMessage{
+			Content: []AssistantMessageBlock{{Text: text}},
+		})
+	}
+}
+
+func WithMessages(messages []Message) Option {
+	return func(a *Agent) {
+		a.messages = append(a.messages, messages...)
+	}
+}
+
+func WithOptionLoader(loaders ...OptionLoader) Option {
+	return func(a *Agent) {
+		a.loaders = append(a.loaders, loaders...)
 	}
 }
 
@@ -101,7 +131,7 @@ func WithApprover(aa ...func(call ToolCall) ToolCallApproval) Option {
 
 func WithToolParallelism(limit int) Option {
 	return func(a *Agent) {
-		a.toolParallelism = limit
+		a.parallelism = limit
 	}
 }
 
