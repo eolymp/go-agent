@@ -109,66 +109,50 @@ func (s StreamChunkType) String() string {
 	}
 }
 
-// CompletionRequest represents a provider-agnostic chat completion request.
+type Container struct {
+	ID     string
+	Skills []Skill
+}
+
+type Skill struct {
+	SkillID string
+	Type    string
+	Version string
+}
+
+type ThinkingConfig struct {
+	Enabled bool
+	Budget  int
+}
+
 type CompletionRequest struct {
-	// Model is the identifier for the LLM model to use
-	Model string
-
-	// Messages contains the conversation history
-	Messages []Message
-
-	// Tools available for the model to call (optional)
-	Tools []Tool
-
-	// ToolChoice controls how the model uses tools
-	ToolChoice ToolChoice
-
-	// ParallelToolCalls enables parallel execution of multiple tool calls
+	Model             string
+	Messages          []Message
+	Tools             []Tool
+	ToolChoice        ToolChoice
 	ParallelToolCalls bool
-
-	// MaxTokens limits the response length (optional)
-	MaxTokens *int
-
-	// Temperature controls randomness in generation (optional)
-	// Typically ranges from 0.0 (deterministic) to 2.0 (very random)
-	Temperature *float64
-
-	// TopP controls nucleus sampling (optional)
-	// Typically ranges from 0.0 to 1.0
-	TopP *float64
-
-	// StreamCallback is called for each chunk during streaming (optional)
-	// If nil, streaming is disabled and the complete response is returned at once
-	StreamCallback func(ctx context.Context, chunk StreamChunk) error
+	MaxTokens         *int
+	Temperature       *float64
+	TopP              *float64
+	Container         *Container
+	Betas             []string
+	ThinkingConfig    *ThinkingConfig
+	StreamCallback    func(ctx context.Context, chunk StreamChunk) error
 }
 
 // CompletionResponse represents a provider-agnostic chat completion response.
 type CompletionResponse struct {
-	// Message contains the generated message
-	Content []AssistantMessageBlock
-
-	// FinishReason indicates why generation stopped
+	Content      []AssistantMessageBlock
 	FinishReason FinishReason
-
-	// Usage contains token usage information
-	Usage CompletionUsage
-
-	// Model is the actual model used for generation
-	Model string
+	Usage        CompletionUsage
+	Model        string
 }
 
 // CompletionUsage represents token usage information for a completion.
 type CompletionUsage struct {
-	// PromptTokens is the number of tokens in the prompt
-	PromptTokens int `json:"prompt_tokens,omitempty"`
-
-	// CompletionTokens is the number of tokens in the completion
-	CompletionTokens int `json:"completion_tokens,omitempty"`
-
-	// TotalTokens is the total number of tokens used
-	TotalTokens int `json:"total_tokens,omitempty"`
-
-	// CachedPromptTokens is the number of prompt tokens served from cache
-	// (used for prompt caching features)
+	PromptTokens       int `json:"prompt_tokens,omitempty"`
+	CompletionTokens   int `json:"completion_tokens,omitempty"`
+	ThinkingTokens     int `json:"thinking_tokens,omitempty"`
+	TotalTokens        int `json:"total_tokens,omitempty"`
 	CachedPromptTokens int `json:"cached_prompt_tokens,omitempty"`
 }

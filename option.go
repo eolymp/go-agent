@@ -105,6 +105,24 @@ func WithToolParallelism(limit int) Option {
 	}
 }
 
+func WithBetas(betas ...string) Option {
+	return func(a *Agent) {
+		a.betas = append(a.betas, betas...)
+	}
+}
+
+func WithContainer(container *Container) Option {
+	return func(a *Agent) {
+		a.container = container
+	}
+}
+
+func WithThinking(config *ThinkingConfig) Option {
+	return func(a *Agent) {
+		a.thinking = config
+	}
+}
+
 // WithApprovals creates approver which approves specific calls
 func WithApprovals(calls ...string) Option {
 	m := map[string]bool{}

@@ -11,20 +11,23 @@ import (
 )
 
 type Agent struct {
-	completer   ChatCompleter
-	name        string
-	description string
-	tools       Toolset
-	memory      Memory
-	prompt      PromptLoader
-	values      map[string]any    // value for system prompt substitutions
-	model       string            // default model to use
-	models         map[string]string // model name mapping
-	iterations     int               // maximum number of iterations for agentic loop
-	toolParallelism int              // maximum number of parallel tool executions (default 5, 0=sequential, <0=unlimited)
-	approver       []func(call ToolCall) ToolCallApproval
-	normalizer  []func(reply *AssistantMessage)       // agent output is expected to be structured, the system will retry if LLM produces non-json output
-	finalizer   []func(reply *AssistantMessage) error // agent output is expected to be structured, the system will retry if LLM produces non-json output
+	completer       ChatCompleter
+	name            string
+	description     string
+	tools           Toolset
+	memory          Memory
+	prompt          PromptLoader
+	values          map[string]any
+	model           string
+	models          map[string]string
+	iterations      int
+	toolParallelism int
+	betas           []string
+	container       *Container
+	thinking        *ThinkingConfig
+	approver        []func(call ToolCall) ToolCallApproval
+	normalizer      []func(reply *AssistantMessage)       // agent output is expected to be structured, the system will retry if LLM produces non-json output
+	finalizer       []func(reply *AssistantMessage) error // agent output is expected to be structured, the system will retry if LLM produces non-json output
 }
 
 func New(name string, prompt PromptLoader, opts ...Option) *Agent {
@@ -118,6 +121,9 @@ loop:
 			Tools:             tools,
 			ParallelToolCalls: c.toolParallelism != 1 && c.toolParallelism != 0,
 			ToolChoice:        ToolChoiceAuto,
+			Container:         c.container,
+			Betas:             c.betas,
+			ThinkingConfig:    c.thinking,
 		})
 
 		if err != nil {
@@ -183,6 +189,7 @@ func (a Agent) complete(ctx context.Context, req CompletionRequest) (resp *Compl
 	span.SetOutput(resp.Content)
 	span.SetMetric("tokens", float64(resp.Usage.TotalTokens))
 	span.SetMetric("prompt_tokens", float64(resp.Usage.PromptTokens))
+	span.SetMetric("thinking_tokens", float64(resp.Usage.ThinkingTokens))
 	span.SetMetric("completion_tokens", float64(resp.Usage.CompletionTokens))
 	span.SetMetric("prompt_cached_tokens", float64(resp.Usage.CachedPromptTokens))
 
@@ -255,6 +262,7 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 			}
 
 			span.SetOutput(result)
+
 			results[index] = NewToolResult(call.ID, result)
 
 			return nil
