@@ -78,7 +78,19 @@ func WithMessages(messages []Message) Option {
 
 func WithOptionLoader(loaders ...OptionLoader) Option {
 	return func(a *Agent) {
-		a.loaders = append(a.loaders, loaders...)
+		a.dynamics = append(a.dynamics, loaders...)
+	}
+}
+
+func WithValues(values map[string]any) Option {
+	return func(a *Agent) {
+		if a.values == nil {
+			a.values = make(map[string]any, len(values))
+		}
+
+		for k, v := range values {
+			a.values[k] = v
+		}
 	}
 }
 

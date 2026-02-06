@@ -17,6 +17,7 @@ type Agent struct {
 	tools       Toolset                                // toolset for the agent
 	memory      Memory                                 // memory provides a backend for storing conversation history between turns
 	messages    []Message                              // list of starter messages are added before the messages from memory, this is normally a system message
+	values      map[string]any                         // values for template substitution in messages
 	model       string                                 // model to be used for completion
 	models      map[string]string                      // additional mapping for model name (probably should be in completer :thinking:...)
 	iterations  int                                    // max number of iterations for agentic loop
@@ -24,7 +25,7 @@ type Agent struct {
 	betas       []string                               // additional flags to enable beta features
 	container   *Container                             // container to be used for LLM (only available in Anthropic models)
 	thinking    *ThinkingConfig                        // thinking configuration (only supported by Anthropic models)
-	loaders     []OptionLoader                         // lazy loaded options are loaded just before executing agentic loop to define dynamic parameters (load from an external backend)
+	dynamics    []OptionLoader                         // lazy loaded options are loaded just before executing agentic loop to define dynamic parameters (load from an external backend)
 	approver    []func(call ToolCall) ToolCallApproval // approvers automatically approve tool calls
 	normalizer  []func(reply *AssistantMessage)        // normalizers modify final message to normalize it (mostly strip ```json tags in structured responses)
 	finalizer   []func(reply *AssistantMessage) error  // finalizers run with final message to ensure it matches expected value, if finalizer returns error, it's added as user message and an additional turn is executed automatically
@@ -66,7 +67,7 @@ func (a Agent) Ask(ctx context.Context, opts ...Option) (err error) {
 }
 
 func (a Agent) Run(ctx context.Context, opts ...Option) (reply AssistantMessage, err error) {
-	c := a
+	c := a.clone()
 	for _, opt := range opts {
 		opt(&c)
 	}
@@ -74,14 +75,20 @@ func (a Agent) Run(ctx context.Context, opts ...Option) (reply AssistantMessage,
 	span, ctx := tracing.StartSpan(ctx, fmt.Sprintf("agent %q", c.name), tracing.Kind(tracing.SpanTask))
 	defer span.CloseWithError(err)
 
-	for _, loader := range c.loaders {
-		if err := loader(ctx, &c); err != nil {
+	for _, d := range c.dynamics {
+		if err := d(ctx, &c); err != nil {
 			return reply, fmt.Errorf("failed to load options: %w", err)
 		}
 	}
 
 	var tools = c.tools.List()
 	var model = c.model
+
+	// Render starter messages with template values
+	system := make([]Message, len(c.messages))
+	for i, msg := range c.messages {
+		system[i] = msg.render(c.values)
+	}
 
 	// run tool calls, if previous loop ended with unapproved tool calls
 	if last, ok := LastMessageAsAssistant(c.memory); ok {
@@ -93,7 +100,7 @@ func (a Agent) Run(ctx context.Context, opts ...Option) (reply AssistantMessage,
 loop:
 	for i := 0; i < c.iterations; i++ {
 		var messages []Message
-		messages = append(messages, c.messages...)
+		messages = append(messages, system...)
 
 		for _, message := range c.memory.List() {
 			messages = append(messages, message)
@@ -294,4 +301,74 @@ func (a Agent) approve(call ToolCall) ToolCallApproval {
 	}
 
 	return ToolCallUndecided
+}
+
+// clone creates a deep copy of the agent to avoid shared state between concurrent calls
+func (a Agent) clone() Agent {
+	c := Agent{
+		completer:   a.completer,
+		name:        a.name,
+		description: a.description,
+		tools:       a.tools,
+		memory:      a.memory,
+		model:       a.model,
+		iterations:  a.iterations,
+		parallelism: a.parallelism,
+	}
+
+	if a.messages != nil {
+		c.messages = make([]Message, len(a.messages))
+		copy(c.messages, a.messages)
+	}
+
+	if a.models != nil {
+		c.models = make(map[string]string, len(a.models))
+		for k, v := range a.models {
+			c.models[k] = v
+		}
+	}
+
+	if a.betas != nil {
+		c.betas = make([]string, len(a.betas))
+		copy(c.betas, a.betas)
+	}
+
+	if a.container != nil {
+		c.container = &Container{
+			ID: a.container.ID,
+		}
+		if a.container.Skills != nil {
+			c.container.Skills = make([]Skill, len(a.container.Skills))
+			copy(c.container.Skills, a.container.Skills)
+		}
+	}
+
+	if a.thinking != nil {
+		c.thinking = &ThinkingConfig{
+			Enabled: a.thinking.Enabled,
+			Budget:  a.thinking.Budget,
+		}
+	}
+
+	if a.dynamics != nil {
+		c.dynamics = make([]OptionLoader, len(a.dynamics))
+		copy(c.dynamics, a.dynamics)
+	}
+
+	if a.approver != nil {
+		c.approver = make([]func(call ToolCall) ToolCallApproval, len(a.approver))
+		copy(c.approver, a.approver)
+	}
+
+	if a.normalizer != nil {
+		c.normalizer = make([]func(reply *AssistantMessage), len(a.normalizer))
+		copy(c.normalizer, a.normalizer)
+	}
+
+	if a.finalizer != nil {
+		c.finalizer = make([]func(reply *AssistantMessage) error, len(a.finalizer))
+		copy(c.finalizer, a.finalizer)
+	}
+
+	return c
 }
