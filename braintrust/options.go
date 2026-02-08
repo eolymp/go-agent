@@ -6,12 +6,12 @@ import (
 	"github.com/eolymp/go-agent"
 )
 
-func WithPrompt(slug string) agent.OptionLoader {
+func WithPrompt(slug string) agent.Option {
 	return WithPrompter(DefaultPrompter(), slug)
 }
 
-func WithPrompter(prompter *Prompter, slug string) agent.OptionLoader {
-	return func(ctx context.Context, a *agent.Agent) error {
+func WithPrompter(prompter *Prompter, slug string) agent.Option {
+	return agent.WithOptionLoader(func(ctx context.Context, a *agent.Agent) error {
 		prompt, err := prompter.Load(ctx, slug)
 		if err != nil {
 			return err
@@ -97,5 +97,5 @@ func WithPrompter(prompter *Prompter, slug string) agent.OptionLoader {
 		}
 
 		return nil
-	}
+	})
 }
