@@ -668,24 +668,29 @@ func toBetaAnthropicTools(tools []agent.Tool) []anthropic.BetaToolUnionParam {
 	result := make([]anthropic.BetaToolUnionParam, len(tools))
 
 	for i, tool := range tools {
+		var dl param.Opt[bool]
+		if tool.DeferLoading {
+			dl = param.NewOpt(true)
+		}
+
 		switch tool.Type {
 		case "bash_20250124":
-			result[i] = anthropic.BetaToolUnionParam{OfBashTool20250124: &anthropic.BetaToolBash20250124Param{Name: "bash", Type: "bash_20250124", DeferLoading: param.NewOpt(tool.DeferLoading)}}
+			result[i] = anthropic.BetaToolUnionParam{OfBashTool20250124: &anthropic.BetaToolBash20250124Param{Name: "bash", Type: "bash_20250124", DeferLoading: dl}}
 			continue
 		case "bash_20241022":
-			result[i] = anthropic.BetaToolUnionParam{OfBashTool20241022: &anthropic.BetaToolBash20241022Param{Name: "bash", Type: "bash_20241022", DeferLoading: param.NewOpt(tool.DeferLoading)}}
+			result[i] = anthropic.BetaToolUnionParam{OfBashTool20241022: &anthropic.BetaToolBash20241022Param{Name: "bash", Type: "bash_20241022", DeferLoading: dl}}
 			continue
 		case "code_execution_20250825":
-			result[i] = anthropic.BetaToolUnionParam{OfCodeExecutionTool20250825: &anthropic.BetaCodeExecutionTool20250825Param{Name: "code_execution", Type: "code_execution_20250825", DeferLoading: param.NewOpt(tool.DeferLoading)}}
+			result[i] = anthropic.BetaToolUnionParam{OfCodeExecutionTool20250825: &anthropic.BetaCodeExecutionTool20250825Param{Name: "code_execution", Type: "code_execution_20250825", DeferLoading: dl}}
 			continue
 		case "web_search_20250305":
-			result[i] = anthropic.BetaToolUnionParam{OfWebSearchTool20250305: &anthropic.BetaWebSearchTool20250305Param{Name: "web_search", Type: "web_search_20250305", DeferLoading: param.NewOpt(tool.DeferLoading)}}
+			result[i] = anthropic.BetaToolUnionParam{OfWebSearchTool20250305: &anthropic.BetaWebSearchTool20250305Param{Name: "web_search", Type: "web_search_20250305", DeferLoading: dl}}
 			continue
 		case "tool_search_tool_regex_20251119":
-			result[i] = anthropic.BetaToolUnionParam{OfToolSearchToolRegex20251119: &anthropic.BetaToolSearchToolRegex20251119Param{Name: "tool_search_tool_regex", Type: "tool_search_tool_regex_20251119", DeferLoading: param.NewOpt(tool.DeferLoading)}}
+			result[i] = anthropic.BetaToolUnionParam{OfToolSearchToolRegex20251119: &anthropic.BetaToolSearchToolRegex20251119Param{Name: "tool_search_tool_regex", Type: "tool_search_tool_regex_20251119", DeferLoading: dl}}
 			continue
 		case "tool_search_tool_bm25_20251119":
-			result[i] = anthropic.BetaToolUnionParam{OfToolSearchToolBm25_20251119: &anthropic.BetaToolSearchToolBm25_20251119Param{Name: "tool_search_tool_bm25", Type: "tool_search_tool_bm25_20251119", DeferLoading: param.NewOpt(tool.DeferLoading)}}
+			result[i] = anthropic.BetaToolUnionParam{OfToolSearchToolBm25_20251119: &anthropic.BetaToolSearchToolBm25_20251119Param{Name: "tool_search_tool_bm25", Type: "tool_search_tool_bm25_20251119", DeferLoading: dl}}
 			continue
 		}
 
