@@ -209,11 +209,15 @@ func toOpenAIRequest(req agent.CompletionRequest) openai.ChatCompletionNewParams
 	}
 
 	if req.Temperature != nil {
-		params.Temperature = openai.Float(*req.Temperature)
+		params.Temperature = openai.Float(float64(*req.Temperature))
 	}
 
 	if req.TopP != nil {
-		params.TopP = openai.Float(*req.TopP)
+		params.TopP = openai.Float(float64(*req.TopP))
+	}
+
+	if req.Reasoning != nil && req.Reasoning.Effort != "" {
+		params.ReasoningEffort = openai.ReasoningEffort(req.Reasoning.Effort)
 	}
 
 	return params

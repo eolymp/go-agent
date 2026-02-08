@@ -120,9 +120,10 @@ type Skill struct {
 	Version string
 }
 
-type ThinkingConfig struct {
+type Reasoning struct {
 	Enabled bool
 	Budget  int
+	Effort  string // "low", "medium", "high" (OpenAI specific)
 }
 
 type CompletionRequest struct {
@@ -131,12 +132,14 @@ type CompletionRequest struct {
 	Tools             []Tool
 	ToolChoice        ToolChoice
 	ParallelToolCalls bool
-	MaxTokens         *int
-	Temperature       *float64
-	TopP              *float64
+	MaxTokens         *int64
+	Temperature       *float32
+	TopP              *float32
+	TopK              *int32
+	UseCache          *bool
 	Container         *Container
 	Betas             []string
-	ThinkingConfig    *ThinkingConfig
+	Reasoning         *Reasoning
 	StreamCallback    func(ctx context.Context, chunk StreamChunk) error
 }
 

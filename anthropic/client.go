@@ -34,14 +34,14 @@ func NewWithClient(client anthropic.Client) *Completer {
 // Complete implements ChatCompleter by delegating to the Anthropic client.
 func (c *Completer) Complete(ctx context.Context, req agent.CompletionRequest) (*agent.CompletionResponse, error) {
 	if req.StreamCallback != nil {
-		if len(req.Betas) > 0 || req.Container != nil || req.ThinkingConfig != nil {
+		if len(req.Betas) > 0 || req.Container != nil || req.Reasoning != nil {
 			return c.betaStream(ctx, req)
 		}
 
 		return c.stream(ctx, req)
 	}
 
-	if len(req.Betas) > 0 || req.Container != nil || req.ThinkingConfig != nil {
+	if len(req.Betas) > 0 || req.Container != nil || req.Reasoning != nil {
 		resp, err := c.client.Beta.Messages.New(ctx, toBetaAnthropicRequest(req))
 		if err != nil {
 			return nil, err
@@ -311,11 +311,15 @@ func toAnthropicRequest(req agent.CompletionRequest) anthropic.MessageNewParams 
 	}
 
 	if req.Temperature != nil {
-		params.Temperature = param.NewOpt(*req.Temperature)
+		params.Temperature = param.NewOpt(float64(*req.Temperature))
 	}
 
 	if req.TopP != nil {
-		params.TopP = param.NewOpt(*req.TopP)
+		params.TopP = param.NewOpt(float64(*req.TopP))
+	}
+
+	if req.TopK != nil {
+		params.TopK = param.NewOpt(int64(*req.TopK))
 	}
 
 	// Convert messages - separate system messages from conversation messages
@@ -470,15 +474,19 @@ func toBetaAnthropicRequest(req agent.CompletionRequest) anthropic.BetaMessageNe
 	params := anthropic.BetaMessageNewParams{Model: anthropic.Model(req.Model), MaxTokens: 8192}
 
 	if req.MaxTokens != nil {
-		params.MaxTokens = int64(*req.MaxTokens)
+		params.MaxTokens = *req.MaxTokens
 	}
 
 	if req.Temperature != nil {
-		params.Temperature = param.NewOpt(*req.Temperature)
+		params.Temperature = param.NewOpt(float64(*req.Temperature))
 	}
 
 	if req.TopP != nil {
-		params.TopP = param.NewOpt(*req.TopP)
+		params.TopP = param.NewOpt(float64(*req.TopP))
+	}
+
+	if req.TopK != nil {
+		params.TopK = param.NewOpt(int64(*req.TopK))
 	}
 
 	if len(req.Betas) > 0 {
@@ -601,11 +609,11 @@ func toBetaAnthropicRequest(req agent.CompletionRequest) anthropic.BetaMessageNe
 		}
 	}
 
-	if req.ThinkingConfig != nil {
-		if req.ThinkingConfig.Enabled {
+	if req.Reasoning != nil {
+		if req.Reasoning.Enabled {
 			budget := int64(1024)
-			if req.ThinkingConfig.Budget > 0 {
-				budget = int64(req.ThinkingConfig.Budget)
+			if req.Reasoning.Budget > 0 {
+				budget = int64(req.Reasoning.Budget)
 			}
 			params.Thinking = anthropic.BetaThinkingConfigParamOfEnabled(budget)
 		} else {

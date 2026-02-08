@@ -19,12 +19,17 @@ type Agent struct {
 	messages    []Message                              // list of starter messages are added before the messages from memory, this is normally a system message
 	values      map[string]any                         // values for template substitution in messages
 	model       string                                 // model to be used for completion
-	models      map[string]string                      // additional mapping for model name (probably should be in completer :thinking:...)
+	models      map[string]string                      // deprecated, to be moved to completer, additional mapping for model name (probably should be in completer :thinking:...)
+	temperature *float32                               // temperature parameter for completion
+	maxTokens   *int64                                 // max tokens parameter for completion
+	topP        *float32                               // top_p parameter for completion
+	topK        *int32                                 // top_k parameter for completion
+	useCache    *bool                                  // use prompt caching (Anthropic specific)
 	iterations  int                                    // max number of iterations for agentic loop
 	parallelism int                                    // number of tool calls executed in parallel, 1 - sequential run, -1 - no limit on parallelism
 	betas       []string                               // additional flags to enable beta features
 	container   *Container                             // container to be used for LLM (only available in Anthropic models)
-	thinking    *ThinkingConfig                        // thinking configuration (only supported by Anthropic models)
+	reasoning   *Reasoning                             // reasoning configuration (only supported by Anthropic models)
 	dynamics    []OptionLoader                         // lazy loaded options are loaded just before executing agentic loop to define dynamic parameters (load from an external backend)
 	approver    []func(call ToolCall) ToolCallApproval // approvers automatically approve tool calls
 	normalizer  []func(reply *AssistantMessage)        // normalizers modify final message to normalize it (mostly strip ```json tags in structured responses)
@@ -112,9 +117,14 @@ loop:
 			Tools:             tools,
 			ParallelToolCalls: c.parallelism != 1 && c.parallelism != 0,
 			ToolChoice:        ToolChoiceAuto,
+			Temperature:       c.temperature,
+			MaxTokens:         c.maxTokens,
+			TopP:              c.topP,
+			TopK:              c.topK,
+			UseCache:          c.useCache,
 			Container:         c.container,
 			Betas:             c.betas,
-			ThinkingConfig:    c.thinking,
+			Reasoning:         c.reasoning,
 		})
 
 		if err != nil {
@@ -343,10 +353,11 @@ func (a Agent) clone() Agent {
 		}
 	}
 
-	if a.thinking != nil {
-		c.thinking = &ThinkingConfig{
-			Enabled: a.thinking.Enabled,
-			Budget:  a.thinking.Budget,
+	if a.reasoning != nil {
+		c.reasoning = &Reasoning{
+			Enabled: a.reasoning.Enabled,
+			Budget:  a.reasoning.Budget,
+			Effort:  a.reasoning.Effort,
 		}
 	}
 
