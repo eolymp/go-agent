@@ -123,12 +123,6 @@ func WithModelMapper(mapping map[string]string) Option {
 	}
 }
 
-func WithNormalizer(ff ...func(*AssistantMessage)) Option {
-	return func(a *Agent) {
-		a.normalizer = append(a.normalizer, ff...)
-	}
-}
-
 func WithFinalizer(ff ...func(*AssistantMessage) error) Option {
 	return func(a *Agent) {
 		a.finalizer = append(a.finalizer, ff...)
@@ -159,9 +153,39 @@ func WithContainer(container *Container) Option {
 	}
 }
 
-func WithThinking(config *ThinkingConfig) Option {
+func WithReasoning(config *Reasoning) Option {
 	return func(a *Agent) {
-		a.thinking = config
+		a.reasoning = config
+	}
+}
+
+func WithTemperature(temperature float32) Option {
+	return func(a *Agent) {
+		a.temperature = &temperature
+	}
+}
+
+func WithMaxTokens(maxTokens int64) Option {
+	return func(a *Agent) {
+		a.maxTokens = &maxTokens
+	}
+}
+
+func WithTopP(topP float32) Option {
+	return func(a *Agent) {
+		a.topP = &topP
+	}
+}
+
+func WithTopK(topK int32) Option {
+	return func(a *Agent) {
+		a.topK = &topK
+	}
+}
+
+func WithUseCache(useCache bool) Option {
+	return func(a *Agent) {
+		a.useCache = &useCache
 	}
 }
 

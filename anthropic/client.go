@@ -34,14 +34,14 @@ func NewWithClient(client anthropic.Client) *Completer {
 // Complete implements ChatCompleter by delegating to the Anthropic client.
 func (c *Completer) Complete(ctx context.Context, req agent.CompletionRequest) (*agent.CompletionResponse, error) {
 	if req.StreamCallback != nil {
-		if len(req.Betas) > 0 || req.Container != nil || req.ThinkingConfig != nil {
+		if len(req.Betas) > 0 || req.Container != nil || req.Reasoning != nil {
 			return c.betaStream(ctx, req)
 		}
 
 		return c.stream(ctx, req)
 	}
 
-	if len(req.Betas) > 0 || req.Container != nil || req.ThinkingConfig != nil {
+	if len(req.Betas) > 0 || req.Container != nil || req.Reasoning != nil {
 		resp, err := c.client.Beta.Messages.New(ctx, toBetaAnthropicRequest(req))
 		if err != nil {
 			return nil, err
@@ -88,7 +88,7 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 					Name: event.ContentBlock.Name,
 				}
 
-				chunk := agent.StreamChunk{
+				chunk := agent.Chunk{
 					Type:  agent.StreamChunkTypeToolCallStart,
 					Index: index,
 					Call:  block.Call,
@@ -108,7 +108,7 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 			switch event.Delta.Type {
 			case "text_delta":
 				block.Text += event.Delta.Text
-				chunk := agent.StreamChunk{
+				chunk := agent.Chunk{
 					Type:  agent.StreamChunkTypeText,
 					Index: index,
 					Text:  event.Delta.Text,
@@ -120,7 +120,7 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 
 			case "input_json_delta":
 				block.Call.Arguments += event.Delta.PartialJSON
-				chunk := agent.StreamChunk{
+				chunk := agent.Chunk{
 					Type:  agent.StreamChunkTypeToolCallDelta,
 					Index: index,
 					Call:  &agent.ToolCall{ID: block.Call.ID, Name: block.Call.Name, Arguments: event.Delta.PartialJSON},
@@ -140,7 +140,7 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 				resp.FinishReason = mapFinishReason(event.Delta.StopReason)
 			}
 
-			chunk := agent.StreamChunk{
+			chunk := agent.Chunk{
 				Type:  agent.StreamChunkTypeUsage,
 				Usage: &resp.Usage,
 			}
@@ -151,7 +151,7 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 
 		case "message_stop":
 			reason := resp.FinishReason
-			chunk := agent.StreamChunk{
+			chunk := agent.Chunk{
 				Type:         agent.StreamChunkTypeFinish,
 				FinishReason: reason,
 			}
@@ -209,7 +209,7 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 					Name: event.ContentBlock.Name,
 				}
 
-				chunk := agent.StreamChunk{
+				chunk := agent.Chunk{
 					Type:  agent.StreamChunkTypeToolCallStart,
 					Index: index,
 					Call:  block.Call,
@@ -229,7 +229,7 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 			switch event.Delta.Type {
 			case "text_delta":
 				block.Text += event.Delta.Text
-				chunk := agent.StreamChunk{
+				chunk := agent.Chunk{
 					Type:  agent.StreamChunkTypeText,
 					Index: index,
 					Text:  event.Delta.Text,
@@ -241,7 +241,7 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 
 			case "input_json_delta":
 				block.Call.Arguments += event.Delta.PartialJSON
-				chunk := agent.StreamChunk{
+				chunk := agent.Chunk{
 					Type:  agent.StreamChunkTypeToolCallDelta,
 					Index: index,
 					Call:  &agent.ToolCall{ID: block.Call.ID, Name: block.Call.Name, Arguments: event.Delta.PartialJSON},
@@ -261,7 +261,7 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 				resp.FinishReason = mapBetaFinishReason(event.Delta.StopReason)
 			}
 
-			chunk := agent.StreamChunk{
+			chunk := agent.Chunk{
 				Type:  agent.StreamChunkTypeUsage,
 				Usage: &resp.Usage,
 			}
@@ -272,7 +272,7 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 
 		case "message_stop":
 			reason := resp.FinishReason
-			chunk := agent.StreamChunk{
+			chunk := agent.Chunk{
 				Type:         agent.StreamChunkTypeFinish,
 				FinishReason: reason,
 			}
@@ -307,15 +307,19 @@ func toAnthropicRequest(req agent.CompletionRequest) anthropic.MessageNewParams 
 	params := anthropic.MessageNewParams{Model: anthropic.Model(req.Model), MaxTokens: 8192}
 
 	if req.MaxTokens != nil {
-		params.MaxTokens = int64(*req.MaxTokens)
+		params.MaxTokens = *req.MaxTokens
 	}
 
 	if req.Temperature != nil {
-		params.Temperature = param.NewOpt(*req.Temperature)
+		params.Temperature = param.NewOpt(float64(*req.Temperature))
 	}
 
 	if req.TopP != nil {
-		params.TopP = param.NewOpt(*req.TopP)
+		params.TopP = param.NewOpt(float64(*req.TopP))
+	}
+
+	if req.TopK != nil {
+		params.TopK = param.NewOpt(int64(*req.TopK))
 	}
 
 	// Convert messages - separate system messages from conversation messages
@@ -383,6 +387,7 @@ func toAnthropicRequest(req agent.CompletionRequest) anthropic.MessageNewParams 
 					Type: "any",
 				},
 			}
+		default:
 		}
 	}
 
@@ -428,6 +433,15 @@ func toAnthropicTools(tools []agent.Tool) []anthropic.ToolUnionParam {
 	result := make([]anthropic.ToolUnionParam, len(tools))
 
 	for i, tool := range tools {
+		switch tool.Type {
+		case "bash_20250124":
+			result[i] = anthropic.ToolUnionParam{OfBashTool20250124: &anthropic.ToolBash20250124Param{Name: "bash", Type: "bash_20250124"}}
+			continue
+		case "web_search_20250305":
+			result[i] = anthropic.ToolUnionParam{OfWebSearchTool20250305: &anthropic.WebSearchTool20250305Param{Name: "web_search", Type: "web_search_20250305"}}
+			continue
+		}
+
 		t := &anthropic.ToolParam{
 			Name:        tool.Name,
 			Description: param.NewOpt(tool.Description),
@@ -470,15 +484,19 @@ func toBetaAnthropicRequest(req agent.CompletionRequest) anthropic.BetaMessageNe
 	params := anthropic.BetaMessageNewParams{Model: anthropic.Model(req.Model), MaxTokens: 8192}
 
 	if req.MaxTokens != nil {
-		params.MaxTokens = int64(*req.MaxTokens)
+		params.MaxTokens = *req.MaxTokens
 	}
 
 	if req.Temperature != nil {
-		params.Temperature = param.NewOpt(*req.Temperature)
+		params.Temperature = param.NewOpt(float64(*req.Temperature))
 	}
 
 	if req.TopP != nil {
-		params.TopP = param.NewOpt(*req.TopP)
+		params.TopP = param.NewOpt(float64(*req.TopP))
+	}
+
+	if req.TopK != nil {
+		params.TopK = param.NewOpt(int64(*req.TopK))
 	}
 
 	if len(req.Betas) > 0 {
@@ -487,13 +505,14 @@ func toBetaAnthropicRequest(req agent.CompletionRequest) anthropic.BetaMessageNe
 
 	if req.Container != nil {
 		skills := make([]anthropic.BetaSkillParams, len(req.Container.Skills))
-		for i, skill := range req.Container.Skills {
+		for i, s := range req.Container.Skills {
 			skills[i] = anthropic.BetaSkillParams{
-				SkillID: skill.SkillID,
-				Type:    anthropic.BetaSkillParamsType(skill.Type),
+				SkillID: s.SkillID,
+				Type:    anthropic.BetaSkillParamsType(s.Type),
 			}
-			if skill.Version != "" {
-				skills[i].Version = param.NewOpt(skill.Version)
+
+			if s.Version != "" {
+				skills[i].Version = param.NewOpt(s.Version)
 			}
 		}
 
@@ -502,6 +521,7 @@ func toBetaAnthropicRequest(req agent.CompletionRequest) anthropic.BetaMessageNe
 				Skills: skills,
 			},
 		}
+
 		if req.Container.ID != "" {
 			params.Container.OfContainers.ID = param.NewOpt(req.Container.ID)
 		}
@@ -542,42 +562,34 @@ func toBetaAnthropicRequest(req agent.CompletionRequest) anthropic.BetaMessageNe
 		case agent.ToolResult:
 			params.Messages = append(params.Messages, anthropic.BetaMessageParam{
 				Role: "user",
-				Content: []anthropic.BetaContentBlockParamUnion{
-					anthropic.BetaContentBlockParamUnion{
-						OfToolResult: &anthropic.BetaToolResultBlockParam{
-							ToolUseID: m.CallID,
-							Content: []anthropic.BetaToolResultBlockParamContentUnion{
-								anthropic.BetaToolResultBlockParamContentUnion{
-									OfText: &anthropic.BetaTextBlockParam{
-										Type: "text",
-										Text: m.String(),
-									},
-								},
+				Content: []anthropic.BetaContentBlockParamUnion{{
+					OfToolResult: &anthropic.BetaToolResultBlockParam{
+						ToolUseID: m.CallID,
+						Content: []anthropic.BetaToolResultBlockParamContentUnion{{
+							OfText: &anthropic.BetaTextBlockParam{
+								Type: "text",
+								Text: m.String(),
 							},
-						},
+						}},
 					},
-				},
+				}},
 			})
 
 		case agent.ToolError:
 			params.Messages = append(params.Messages, anthropic.BetaMessageParam{
 				Role: "user",
-				Content: []anthropic.BetaContentBlockParamUnion{
-					anthropic.BetaContentBlockParamUnion{
-						OfToolResult: &anthropic.BetaToolResultBlockParam{
-							ToolUseID: m.CallID,
-							IsError:   param.NewOpt(true),
-							Content: []anthropic.BetaToolResultBlockParamContentUnion{
-								anthropic.BetaToolResultBlockParamContentUnion{
-									OfText: &anthropic.BetaTextBlockParam{
-										Type: "text",
-										Text: m.String(),
-									},
-								},
+				Content: []anthropic.BetaContentBlockParamUnion{{
+					OfToolResult: &anthropic.BetaToolResultBlockParam{
+						ToolUseID: m.CallID,
+						IsError:   param.NewOpt(true),
+						Content: []anthropic.BetaToolResultBlockParamContentUnion{{
+							OfText: &anthropic.BetaTextBlockParam{
+								Type: "text",
+								Text: m.String(),
 							},
-						},
+						}},
 					},
-				},
+				}},
 			})
 		}
 	}
@@ -598,21 +610,21 @@ func toBetaAnthropicRequest(req agent.CompletionRequest) anthropic.BetaMessageNe
 					Type: "any",
 				},
 			}
+		default:
 		}
 	}
 
-	if req.ThinkingConfig != nil {
-		if req.ThinkingConfig.Enabled {
+	if req.Reasoning != nil {
+		if req.Reasoning.Enabled {
 			budget := int64(1024)
-			if req.ThinkingConfig.Budget > 0 {
-				budget = int64(req.ThinkingConfig.Budget)
+			if req.Reasoning.Budget > 0 {
+				budget = int64(req.Reasoning.Budget)
 			}
+
 			params.Thinking = anthropic.BetaThinkingConfigParamOfEnabled(budget)
 		} else {
 			disabled := anthropic.NewBetaThinkingConfigDisabledParam()
-			params.Thinking = anthropic.BetaThinkingConfigParamUnion{
-				OfDisabled: &disabled,
-			}
+			params.Thinking = anthropic.BetaThinkingConfigParamUnion{OfDisabled: &disabled}
 		}
 	}
 
@@ -656,9 +668,34 @@ func toBetaAnthropicTools(tools []agent.Tool) []anthropic.BetaToolUnionParam {
 	result := make([]anthropic.BetaToolUnionParam, len(tools))
 
 	for i, tool := range tools {
+		switch tool.Type {
+		case "bash_20250124":
+			result[i] = anthropic.BetaToolUnionParam{OfBashTool20250124: &anthropic.BetaToolBash20250124Param{Name: "bash", Type: "bash_20250124", DeferLoading: param.NewOpt(tool.DeferLoading)}}
+			continue
+		case "bash_20241022":
+			result[i] = anthropic.BetaToolUnionParam{OfBashTool20241022: &anthropic.BetaToolBash20241022Param{Name: "bash", Type: "bash_20241022", DeferLoading: param.NewOpt(tool.DeferLoading)}}
+			continue
+		case "code_execution_20250825":
+			result[i] = anthropic.BetaToolUnionParam{OfCodeExecutionTool20250825: &anthropic.BetaCodeExecutionTool20250825Param{Name: "code_execution", Type: "code_execution_20250825", DeferLoading: param.NewOpt(tool.DeferLoading)}}
+			continue
+		case "web_search_20250305":
+			result[i] = anthropic.BetaToolUnionParam{OfWebSearchTool20250305: &anthropic.BetaWebSearchTool20250305Param{Name: "web_search", Type: "web_search_20250305", DeferLoading: param.NewOpt(tool.DeferLoading)}}
+			continue
+		case "tool_search_tool_regex_20251119":
+			result[i] = anthropic.BetaToolUnionParam{OfToolSearchToolRegex20251119: &anthropic.BetaToolSearchToolRegex20251119Param{Name: "tool_search_tool_regex", Type: "tool_search_tool_regex_20251119", DeferLoading: param.NewOpt(tool.DeferLoading)}}
+			continue
+		case "tool_search_tool_bm25_20251119":
+			result[i] = anthropic.BetaToolUnionParam{OfToolSearchToolBm25_20251119: &anthropic.BetaToolSearchToolBm25_20251119Param{Name: "tool_search_tool_bm25", Type: "tool_search_tool_bm25_20251119", DeferLoading: param.NewOpt(tool.DeferLoading)}}
+			continue
+		}
+
 		t := &anthropic.BetaToolParam{
 			Name:        tool.Name,
 			Description: param.NewOpt(tool.Description),
+		}
+
+		if tool.DeferLoading {
+			t.DeferLoading = param.NewOpt(true)
 		}
 
 		if tool.InputSchema != nil && tool.InputSchema.Type != "" {

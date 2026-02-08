@@ -19,15 +19,19 @@ type Agent struct {
 	messages    []Message                              // list of starter messages are added before the messages from memory, this is normally a system message
 	values      map[string]any                         // values for template substitution in messages
 	model       string                                 // model to be used for completion
-	models      map[string]string                      // additional mapping for model name (probably should be in completer :thinking:...)
+	models      map[string]string                      // deprecated, to be moved to completer, additional mapping for model name (probably should be in completer :thinking:...)
+	temperature *float32                               // temperature parameter for completion
+	maxTokens   *int64                                 // max tokens parameter for completion
+	topP        *float32                               // top_p parameter for completion
+	topK        *int32                                 // top_k parameter for completion
+	useCache    *bool                                  // use prompt caching (Anthropic specific)
 	iterations  int                                    // max number of iterations for agentic loop
 	parallelism int                                    // number of tool calls executed in parallel, 1 - sequential run, -1 - no limit on parallelism
 	betas       []string                               // additional flags to enable beta features
 	container   *Container                             // container to be used for LLM (only available in Anthropic models)
-	thinking    *ThinkingConfig                        // thinking configuration (only supported by Anthropic models)
+	reasoning   *Reasoning                             // reasoning configuration (only supported by Anthropic models)
 	dynamics    []OptionLoader                         // lazy loaded options are loaded just before executing agentic loop to define dynamic parameters (load from an external backend)
 	approver    []func(call ToolCall) ToolCallApproval // approvers automatically approve tool calls
-	normalizer  []func(reply *AssistantMessage)        // normalizers modify final message to normalize it (mostly strip ```json tags in structured responses)
 	finalizer   []func(reply *AssistantMessage) error  // finalizers run with final message to ensure it matches expected value, if finalizer returns error, it's added as user message and an additional turn is executed automatically
 }
 
@@ -86,8 +90,8 @@ func (a Agent) Run(ctx context.Context, opts ...Option) (reply AssistantMessage,
 
 	// Render starter messages with template values
 	system := make([]Message, len(c.messages))
-	for i, msg := range c.messages {
-		system[i] = msg.render(c.values)
+	for i, m := range c.messages {
+		system[i] = render(m, c.values)
 	}
 
 	// run tool calls, if previous loop ended with unapproved tool calls
@@ -112,9 +116,14 @@ loop:
 			Tools:             tools,
 			ParallelToolCalls: c.parallelism != 1 && c.parallelism != 0,
 			ToolChoice:        ToolChoiceAuto,
+			Temperature:       c.temperature,
+			MaxTokens:         c.maxTokens,
+			TopP:              c.topP,
+			TopK:              c.topK,
+			UseCache:          c.useCache,
 			Container:         c.container,
 			Betas:             c.betas,
-			ThinkingConfig:    c.thinking,
+			Reasoning:         c.reasoning,
 		})
 
 		if err != nil {
@@ -137,12 +146,6 @@ loop:
 
 			continue
 		default:
-			// first normalize response
-			for _, n := range c.normalizer {
-				n(&reply)
-			}
-
-			// make sure all finalizers are ok with the response
 			for _, f := range c.finalizer {
 				if err := f(&reply); err != nil {
 					if err := c.memory.Append(ctx, NewUserMessage("ERROR: "+err.Error())); err != nil {
@@ -168,7 +171,7 @@ func (a Agent) complete(ctx context.Context, req CompletionRequest) (resp *Compl
 		req.Model = m
 	}
 
-	if s, ok := a.memory.(StreamingMemory); ok {
+	if s, ok := a.memory.(Streamer); ok {
 		req.StreamCallback = s.Stream
 	}
 
@@ -227,10 +230,10 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 			span, gctx := tracing.StartSpan(gctx, fmt.Sprintf("tool_call %q", call.Name), tracing.Kind(tracing.SpanTool), tracing.Input(json.RawMessage(call.Arguments)))
 			defer span.Close()
 
-			if s, ok := a.memory.(StreamingMemory); ok {
-				_ = s.Stream(ctx, StreamChunk{Type: StreamChunkTypeToolCallExecute, Index: index, Call: &ToolCall{ID: call.ID, Name: call.Name}})
+			if s, ok := a.memory.(Streamer); ok {
+				_ = s.Stream(ctx, Chunk{Type: StreamChunkTypeToolCallExecute, Index: index, Call: &ToolCall{ID: call.ID, Name: call.Name}})
 				defer func() {
-					_ = s.Stream(ctx, StreamChunk{Type: StreamChunkTypeToolCallComplete, Index: index, Call: &ToolCall{ID: call.ID, Name: call.Name}})
+					_ = s.Stream(ctx, Chunk{Type: StreamChunkTypeToolCallComplete, Index: index, Call: &ToolCall{ID: call.ID, Name: call.Name}})
 				}()
 			}
 
@@ -343,10 +346,11 @@ func (a Agent) clone() Agent {
 		}
 	}
 
-	if a.thinking != nil {
-		c.thinking = &ThinkingConfig{
-			Enabled: a.thinking.Enabled,
-			Budget:  a.thinking.Budget,
+	if a.reasoning != nil {
+		c.reasoning = &Reasoning{
+			Enabled: a.reasoning.Enabled,
+			Budget:  a.reasoning.Budget,
+			Effort:  a.reasoning.Effort,
 		}
 	}
 
@@ -358,11 +362,6 @@ func (a Agent) clone() Agent {
 	if a.approver != nil {
 		c.approver = make([]func(call ToolCall) ToolCallApproval, len(a.approver))
 		copy(c.approver, a.approver)
-	}
-
-	if a.normalizer != nil {
-		c.normalizer = make([]func(reply *AssistantMessage), len(a.normalizer))
-		copy(c.normalizer, a.normalizer)
 	}
 
 	if a.finalizer != nil {

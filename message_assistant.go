@@ -21,18 +21,6 @@ func NewAssistantMessage(text ...string) AssistantMessage {
 
 func (m AssistantMessage) isMessage() {}
 
-func (m AssistantMessage) render(values map[string]any) Message {
-	content := make([]AssistantMessageBlock, len(m.Content))
-	for i, block := range m.Content {
-		content[i] = block
-		if block.Text != "" {
-			content[i].Text = MessageRender(block.Text, values)
-		}
-	}
-
-	return AssistantMessage{Content: content}
-}
-
 func (m AssistantMessage) Text() string {
 	var result strings.Builder
 	for _, block := range m.Content {

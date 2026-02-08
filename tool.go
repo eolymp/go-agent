@@ -9,9 +9,11 @@ import (
 
 type Tool struct {
 	Name         string
+	Type         string
 	Description  string
 	InputSchema  *jsonschema.Schema
 	OutputSchema *jsonschema.Schema
+	DeferLoading bool
 }
 
 func WithTool(tool Tool, fn func(context.Context, []byte) (any, error)) Option {

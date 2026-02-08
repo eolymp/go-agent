@@ -67,7 +67,7 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 			if delta.Content != "" {
 				text.WriteString(delta.Content)
 
-				chunk := agent.StreamChunk{
+				chunk := agent.Chunk{
 					Type: agent.StreamChunkTypeText,
 					Text: delta.Content,
 				}
@@ -87,7 +87,7 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 						Name: tc.Function.Name,
 					}
 
-					chunk := agent.StreamChunk{
+					chunk := agent.Chunk{
 						Type:  agent.StreamChunkTypeToolCallStart,
 						Index: index + 1,
 						Call:  calls[index],
@@ -101,7 +101,7 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 				if tc.Function.Arguments != "" {
 					if c, ok := calls[index]; ok {
 						c.Arguments += tc.Function.Arguments
-						chunk := agent.StreamChunk{
+						chunk := agent.Chunk{
 							Type:  agent.StreamChunkTypeToolCallDelta,
 							Index: index + 1,
 							Call: &agent.ToolCall{
@@ -128,7 +128,7 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 		resp.Usage.TotalTokens = int(event.Usage.TotalTokens)
 		resp.Usage.CachedPromptTokens = int(event.Usage.PromptTokensDetails.CachedTokens)
 
-		chunk := agent.StreamChunk{
+		chunk := agent.Chunk{
 			Type:  agent.StreamChunkTypeUsage,
 			Usage: &resp.Usage,
 		}
@@ -143,7 +143,7 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 	}
 
 	reason := resp.FinishReason
-	chunk := agent.StreamChunk{
+	chunk := agent.Chunk{
 		Type:         agent.StreamChunkTypeFinish,
 		FinishReason: reason,
 	}
@@ -209,11 +209,15 @@ func toOpenAIRequest(req agent.CompletionRequest) openai.ChatCompletionNewParams
 	}
 
 	if req.Temperature != nil {
-		params.Temperature = openai.Float(*req.Temperature)
+		params.Temperature = openai.Float(float64(*req.Temperature))
 	}
 
 	if req.TopP != nil {
-		params.TopP = openai.Float(*req.TopP)
+		params.TopP = openai.Float(float64(*req.TopP))
+	}
+
+	if req.Reasoning != nil && req.Reasoning.Effort != "" {
+		params.ReasoningEffort = openai.ReasoningEffort(req.Reasoning.Effort)
 	}
 
 	return params
