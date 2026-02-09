@@ -10,10 +10,6 @@ type Memory interface {
 	Append(ctx context.Context, m Message) error
 }
 
-type Streamer interface {
-	Stream(ctx context.Context, chunk Chunk) error
-}
-
 func LastMessage(memory Memory) (Message, bool) {
 	messages := memory.List()
 	if len(messages) == 0 {

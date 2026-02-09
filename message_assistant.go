@@ -7,13 +7,13 @@ import (
 )
 
 type AssistantMessage struct {
-	Content []AssistantMessageBlock `json:"content"`
+	Content []MessageBlock `json:"content"`
 }
 
 func NewAssistantMessage(text ...string) AssistantMessage {
-	content := make([]AssistantMessageBlock, len(text))
+	content := make([]MessageBlock, len(text))
 	for i, t := range text {
-		content[i] = AssistantMessageBlock{Text: t}
+		content[i] = MessageBlock{Type: MessageBlockTypeText, Text: t}
 	}
 
 	return AssistantMessage{Content: content}
@@ -24,7 +24,20 @@ func (m AssistantMessage) isMessage() {}
 func (m AssistantMessage) Text() string {
 	var result strings.Builder
 	for _, block := range m.Content {
-		result.WriteString(block.Text)
+		if block.Type == MessageBlockTypeText {
+			result.WriteString(block.Text)
+		}
+	}
+
+	return result.String()
+}
+
+func (m AssistantMessage) Reasoning() string {
+	var result strings.Builder
+	for _, block := range m.Content {
+		if block.Type == MessageBlockTypeReasoning {
+			result.WriteString(block.Text)
+		}
 	}
 
 	return result.String()
@@ -32,7 +45,7 @@ func (m AssistantMessage) Text() string {
 
 func (m AssistantMessage) Unmarshal(v any) error {
 	for _, b := range m.Content {
-		if b.Call != nil {
+		if b.Type == MessageBlockTypeToolCall {
 			return errors.New("assistant message contains tool usage")
 		}
 	}
@@ -40,20 +53,24 @@ func (m AssistantMessage) Unmarshal(v any) error {
 	return json.Unmarshal([]byte(strings.TrimPrefix(strings.Trim(m.Text(), "`"), "json")), v)
 }
 
-type AssistantMessageBlock struct {
-	Text      string          `json:"text,omitempty"`
-	Call      *ToolCall       `json:"call,omitempty"`
-	Reasoning *ReasoningBlock `json:"reasoning,omitempty"`
+type MessageBlock struct {
+	Type       MessageBlockType `json:"type"`
+	Text       string           `json:"text,omitempty"`
+	Signature  string           `json:"signature,omitempty"`
+	ToolCall   *ToolCall        `json:"toolcall,omitempty"`
+	ToolResult *ToolResult      `json:"tool_result,omitempty"`
 }
 
-// ReasoningBlock represents extended thinking content from models with reasoning capabilities.
-// This includes thinking text, built-in tool usage (server_tool_use), and inline tool results.
-type ReasoningBlock struct {
-	Content   string      `json:"content,omitempty"`
-	Signature string      `json:"signature,omitempty"`
-	Call      *ToolCall   `json:"call,omitempty"`
-	Result    *ToolResult `json:"result,omitempty"`
-}
+type MessageBlockType string
+
+const (
+	MessageBlockTypeText           MessageBlockType = "text"
+	MessageBlockTypeToolCall       MessageBlockType = "tool_call"
+	MessageBlockTypeReasoning      MessageBlockType = "reasoning"
+	MessageBlockTypeSignature      MessageBlockType = "signature"
+	MessageBlockTypeServerToolCall MessageBlockType = "server_tool_call"
+	MessageBlockTypeToolResult     MessageBlockType = "tool_result"
+)
 
 type ToolCall struct {
 	ID        string `json:"id,omitempty"`

@@ -21,7 +21,7 @@ func render(m Message, values map[string]any) Message {
 
 	switch v := m.(type) {
 	case AssistantMessage:
-		content := make([]AssistantMessageBlock, len(v.Content))
+		content := make([]MessageBlock, len(v.Content))
 		for i, block := range v.Content {
 			content[i] = block
 			if block.Text != "" {

@@ -65,7 +65,7 @@ func WithUserMessage(text string) Option {
 func WithAssistantMessage(text string) Option {
 	return func(a *Agent) {
 		a.messages = append(a.messages, AssistantMessage{
-			Content: []AssistantMessageBlock{{Text: text}},
+			Content: []MessageBlock{{Type: MessageBlockTypeText, Text: text}},
 		})
 	}
 }

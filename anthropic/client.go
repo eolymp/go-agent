@@ -64,7 +64,7 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 	defer stream.Close()
 
 	resp := &agent.CompletionResponse{}
-	blocks := make(map[int]*agent.AssistantMessageBlock)
+	blocks := make(map[int]*agent.MessageBlock)
 
 	// Process stream events
 	for stream.Next() {
@@ -78,12 +78,14 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 
 		case "content_block_start":
 			index := int(event.Index)
-			block := &agent.AssistantMessageBlock{}
+			block := &agent.MessageBlock{}
 
 			switch event.ContentBlock.Type {
 			case "text":
+				block.Type = agent.MessageBlockTypeText
 			case "tool_use":
-				block.Call = &agent.ToolCall{
+				block.Type = agent.MessageBlockTypeToolCall
+				block.ToolCall = &agent.ToolCall{
 					ID:   event.ContentBlock.ID,
 					Name: event.ContentBlock.Name,
 				}
@@ -91,7 +93,7 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 				chunk := agent.Chunk{
 					Type:  agent.StreamChunkTypeToolCallStart,
 					Index: index,
-					Call:  block.Call,
+					Call:  block.ToolCall,
 				}
 
 				if err := req.StreamCallback(ctx, chunk); err != nil {
@@ -111,6 +113,10 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 
 			switch event.Delta.Type {
 			case "text_delta":
+				if block.Type != agent.MessageBlockTypeText {
+					continue
+				}
+
 				block.Text += event.Delta.Text
 				chunk := agent.Chunk{
 					Type:  agent.StreamChunkTypeText,
@@ -123,15 +129,15 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 				}
 
 			case "input_json_delta":
-				if block.Call == nil {
+				if block.Type != agent.MessageBlockTypeToolCall {
 					continue
 				}
 
-				block.Call.Arguments += event.Delta.PartialJSON
+				block.ToolCall.Arguments += event.Delta.PartialJSON
 				chunk := agent.Chunk{
 					Type:  agent.StreamChunkTypeToolCallDelta,
 					Index: index,
-					Call:  &agent.ToolCall{ID: block.Call.ID, Name: block.Call.Name, Arguments: event.Delta.PartialJSON},
+					Call:  &agent.ToolCall{ID: block.ToolCall.ID, Name: block.ToolCall.Name, Arguments: event.Delta.PartialJSON},
 				}
 
 				if err := req.StreamCallback(ctx, chunk); err != nil {
@@ -181,7 +187,7 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 		}
 	}
 
-	resp.Content = make([]agent.AssistantMessageBlock, length+1)
+	resp.Content = make([]agent.MessageBlock, length+1)
 	for idx, block := range blocks {
 		resp.Content[idx] = *block
 	}
@@ -194,7 +200,7 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 	defer stream.Close()
 
 	resp := &agent.CompletionResponse{}
-	blocks := make(map[int]*agent.AssistantMessageBlock)
+	blocks := make(map[int]*agent.MessageBlock)
 
 	for stream.Next() {
 		event := stream.Current()
@@ -207,14 +213,16 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 
 		case "content_block_start":
 			index := int(event.Index)
-			block := &agent.AssistantMessageBlock{}
+			block := &agent.MessageBlock{}
 
 			switch event.ContentBlock.Type {
 			case "text":
+				block.Type = agent.MessageBlockTypeText
 			case "thinking":
-				block.Reasoning = &agent.ReasoningBlock{}
+				block.Type = agent.MessageBlockTypeReasoning
 			case "tool_use":
-				block.Call = &agent.ToolCall{
+				block.Type = agent.MessageBlockTypeToolCall
+				block.ToolCall = &agent.ToolCall{
 					ID:   event.ContentBlock.ID,
 					Name: event.ContentBlock.Name,
 				}
@@ -222,18 +230,17 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 				chunk := agent.Chunk{
 					Type:  agent.StreamChunkTypeToolCallStart,
 					Index: index,
-					Call:  block.Call,
+					Call:  block.ToolCall,
 				}
 
 				if err := req.StreamCallback(ctx, chunk); err != nil {
 					return nil, err
 				}
 			case "server_tool_use":
-				block.Reasoning = &agent.ReasoningBlock{
-					Call: &agent.ToolCall{
-						ID:   event.ContentBlock.ID,
-						Name: event.ContentBlock.Name,
-					},
+				block.Type = agent.MessageBlockTypeServerToolCall
+				block.ToolCall = &agent.ToolCall{
+					ID:   event.ContentBlock.ID,
+					Name: event.ContentBlock.Name,
 				}
 
 				chunk := agent.Chunk{
@@ -246,9 +253,8 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 					return nil, err
 				}
 			case "web_search_tool_result":
-				block.Reasoning = &agent.ReasoningBlock{
-					Result: &agent.ToolResult{CallID: event.ContentBlock.ToolUseID},
-				}
+				block.Type = agent.MessageBlockTypeToolResult
+				block.ToolResult = &agent.ToolResult{CallID: event.ContentBlock.ToolUseID}
 
 				chunk := agent.Chunk{
 					Type:   agent.StreamChunkTypeToolResult,
@@ -273,6 +279,10 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 
 			switch event.Delta.Type {
 			case "text_delta":
+				if block.Type != agent.MessageBlockTypeText {
+					continue
+				}
+
 				block.Text += event.Delta.Text
 				chunk := agent.Chunk{
 					Type:  agent.StreamChunkTypeText,
@@ -285,57 +295,57 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 				}
 
 			case "thinking_delta":
-				if block.Reasoning != nil {
-					block.Reasoning.Content += event.Delta.Text
+				if block.Type != agent.MessageBlockTypeReasoning {
+					continue
+				}
 
-					chunk := agent.Chunk{
-						Type:  agent.StreamChunkTypeThinkingDelta,
-						Index: index,
-						Text:  event.Delta.Text,
-					}
+				block.Text += event.Delta.Text
+				chunk := agent.Chunk{
+					Type:  agent.StreamChunkTypeReasoning,
+					Index: index,
+					Text:  event.Delta.Text,
+				}
 
-					if err := req.StreamCallback(ctx, chunk); err != nil {
-						return nil, err
-					}
+				if err := req.StreamCallback(ctx, chunk); err != nil {
+					return nil, err
 				}
 
 			case "signature_delta":
-				if block.Reasoning != nil {
-					block.Reasoning.Signature = event.Delta.Signature
+				if block.Type != agent.MessageBlockTypeSignature {
+					continue
+				}
 
-					chunk := agent.Chunk{
-						Type:      agent.StreamChunkTypeThinkingSignature,
-						Index:     index,
-						Signature: event.Delta.Signature,
-					}
+				block.Signature = event.Delta.Signature
+				chunk := agent.Chunk{
+					Type:      agent.StreamChunkTypeSignature,
+					Index:     index,
+					Signature: event.Delta.Signature,
+				}
 
-					if err := req.StreamCallback(ctx, chunk); err != nil {
-						return nil, err
-					}
+				if err := req.StreamCallback(ctx, chunk); err != nil {
+					return nil, err
 				}
 
 			case "input_json_delta":
-				// Handle regular tool_use
-				if block.Call != nil {
-					block.Call.Arguments += event.Delta.PartialJSON
+				switch block.Type {
+				case agent.MessageBlockTypeToolCall:
+					block.ToolCall.Arguments += event.Delta.PartialJSON
 					chunk := agent.Chunk{
 						Type:  agent.StreamChunkTypeToolCallDelta,
 						Index: index,
-						Call:  &agent.ToolCall{ID: block.Call.ID, Name: block.Call.Name, Arguments: event.Delta.PartialJSON},
+						Call:  &agent.ToolCall{ID: block.ToolCall.ID, Name: block.ToolCall.Name, Arguments: event.Delta.PartialJSON},
 					}
 
 					if err := req.StreamCallback(ctx, chunk); err != nil {
 						return nil, err
 					}
-				}
 
-				// Handle server_tool_use (built-in tools)
-				if block.Reasoning != nil && block.Reasoning.Call != nil {
-					block.Reasoning.Call.Arguments += event.Delta.PartialJSON
+				case agent.MessageBlockTypeServerToolCall:
+					block.ToolCall.Arguments += event.Delta.PartialJSON
 					chunk := agent.Chunk{
 						Type:  agent.StreamChunkTypeServerToolCallDelta,
 						Index: index,
-						Call:  &agent.ToolCall{ID: block.Reasoning.Call.ID, Name: block.Reasoning.Call.Name, Arguments: event.Delta.PartialJSON},
+						Call:  &agent.ToolCall{ID: block.ToolCall.ID, Name: block.ToolCall.Name, Arguments: event.Delta.PartialJSON},
 					}
 
 					if err := req.StreamCallback(ctx, chunk); err != nil {
@@ -387,7 +397,7 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 		}
 	}
 
-	resp.Content = make([]agent.AssistantMessageBlock, length+1)
+	resp.Content = make([]agent.MessageBlock, length+1)
 	for idx, block := range blocks {
 		resp.Content[idx] = *block
 	}
@@ -434,11 +444,11 @@ func toAnthropicRequest(req agent.CompletionRequest) anthropic.MessageNewParams 
 			content := make([]anthropic.ContentBlockParamUnion, len(m.Content))
 			for i, block := range m.Content {
 				switch {
-				case block.Call != nil:
+				case block.Type == agent.MessageBlockTypeToolCall:
 					var input map[string]interface{}
-					_ = json.Unmarshal([]byte(block.Call.Arguments), &input)
-					content[i] = anthropic.NewToolUseBlock(block.Call.ID, input, block.Call.Name)
-				case block.Text != "":
+					_ = json.Unmarshal([]byte(block.ToolCall.Arguments), &input)
+					content[i] = anthropic.NewToolUseBlock(block.ToolCall.ID, input, block.ToolCall.Name)
+				case block.Type == agent.MessageBlockTypeText:
 					content[i] = anthropic.NewTextBlock(block.Text)
 				}
 			}
@@ -491,7 +501,7 @@ func toAnthropicRequest(req agent.CompletionRequest) anthropic.MessageNewParams 
 func fromAnthropicResponse(resp *anthropic.Message) *agent.CompletionResponse {
 	ar := &agent.CompletionResponse{
 		Model:        string(resp.Model),
-		Content:      make([]agent.AssistantMessageBlock, len(resp.Content)),
+		Content:      make([]agent.MessageBlock, len(resp.Content)),
 		FinishReason: mapFinishReason(resp.StopReason),
 		Usage: agent.CompletionUsage{
 			PromptTokens:       int(resp.Usage.InputTokens),
@@ -504,12 +514,14 @@ func fromAnthropicResponse(resp *anthropic.Message) *agent.CompletionResponse {
 	for i, b := range resp.Content {
 		switch b.Type {
 		case "text":
-			ar.Content[i] = agent.AssistantMessageBlock{
+			ar.Content[i] = agent.MessageBlock{
+				Type: agent.MessageBlockTypeText,
 				Text: b.Text,
 			}
 		case "tool_use":
-			ar.Content[i] = agent.AssistantMessageBlock{
-				Call: &agent.ToolCall{
+			ar.Content[i] = agent.MessageBlock{
+				Type: agent.MessageBlockTypeToolCall,
+				ToolCall: &agent.ToolCall{
 					ID:        b.ID,
 					Name:      b.Name,
 					Arguments: string(b.Input),
@@ -637,34 +649,34 @@ func toBetaAnthropicRequest(req agent.CompletionRequest) anthropic.BetaMessageNe
 		case agent.AssistantMessage:
 			content := make([]anthropic.BetaContentBlockParamUnion, len(m.Content))
 			for i, block := range m.Content {
-				switch {
-				case block.Call != nil:
+				switch block.Type {
+				case agent.MessageBlockTypeToolCall:
 					var input map[string]interface{}
-					_ = json.Unmarshal([]byte(block.Call.Arguments), &input)
-					content[i] = anthropic.NewBetaToolUseBlock(block.Call.ID, input, block.Call.Name)
-				case block.Text != "":
+					_ = json.Unmarshal([]byte(block.ToolCall.Arguments), &input)
+					content[i] = anthropic.NewBetaToolUseBlock(block.ToolCall.ID, input, block.ToolCall.Name)
+				case agent.MessageBlockTypeText:
 					content[i] = anthropic.NewBetaTextBlock(block.Text)
-				case block.Reasoning != nil && block.Reasoning.Content != "":
+				case agent.MessageBlockTypeReasoning:
 					content[i] = anthropic.BetaContentBlockParamUnion{
-						OfThinking: &anthropic.BetaThinkingBlockParam{Type: "thinking", Thinking: block.Reasoning.Content},
+						OfThinking: &anthropic.BetaThinkingBlockParam{Type: "thinking", Thinking: block.Text},
 					}
-				case block.Reasoning != nil && block.Reasoning.Call != nil:
+				case agent.MessageBlockTypeServerToolCall:
 					var input map[string]interface{}
-					_ = json.Unmarshal([]byte(block.Reasoning.Call.Arguments), &input)
+					_ = json.Unmarshal([]byte(block.ToolCall.Arguments), &input)
 
 					content[i] = anthropic.BetaContentBlockParamUnion{
 						OfServerToolUse: &anthropic.BetaServerToolUseBlockParam{
 							Type:  "server_tool_use",
-							ID:    block.Reasoning.Call.ID,
-							Name:  anthropic.BetaServerToolUseBlockParamName(block.Reasoning.Call.Name),
+							ID:    block.ToolCall.ID,
+							Name:  anthropic.BetaServerToolUseBlockParamName(block.ToolCall.Name),
 							Input: input,
 						},
 					}
-				case block.Reasoning != nil && block.Reasoning.Result != nil:
+				case agent.MessageBlockTypeToolResult:
 					content[i] = anthropic.BetaContentBlockParamUnion{
 						OfWebSearchToolResult: &anthropic.BetaWebSearchToolResultBlockParam{
 							Type:      "web_search_tool_result",
-							ToolUseID: block.Reasoning.Result.CallID,
+							ToolUseID: block.ToolResult.CallID,
 							// TODO: Parse and set Content properly when SDK supports it
 						},
 					}
@@ -751,7 +763,7 @@ func toBetaAnthropicRequest(req agent.CompletionRequest) anthropic.BetaMessageNe
 func fromBetaAnthropicResponse(resp *anthropic.BetaMessage) *agent.CompletionResponse {
 	ar := &agent.CompletionResponse{
 		Model:        string(resp.Model),
-		Content:      make([]agent.AssistantMessageBlock, len(resp.Content)),
+		Content:      make([]agent.MessageBlock, len(resp.Content)),
 		FinishReason: mapBetaFinishReason(resp.StopReason),
 		Usage: agent.CompletionUsage{
 			PromptTokens:       int(resp.Usage.InputTokens),
@@ -764,28 +776,15 @@ func fromBetaAnthropicResponse(resp *anthropic.BetaMessage) *agent.CompletionRes
 	for i, b := range resp.Content {
 		switch b.Type {
 		case "text":
-			ar.Content[i] = agent.AssistantMessageBlock{
-				Text: b.Text,
-			}
+			ar.Content[i] = agent.MessageBlock{Type: agent.MessageBlockTypeText, Text: b.Text}
 		case "thinking":
-			ar.Content[i] = agent.AssistantMessageBlock{Reasoning: &agent.ReasoningBlock{Content: b.Text}}
+			ar.Content[i] = agent.MessageBlock{Type: agent.MessageBlockTypeReasoning, Text: b.Text}
 		case "tool_use":
-			ar.Content[i] = agent.AssistantMessageBlock{
-				Call: &agent.ToolCall{ID: b.ID, Name: b.Name, Arguments: string(b.Input)},
-			}
+			ar.Content[i] = agent.MessageBlock{Type: agent.MessageBlockTypeToolCall, ToolCall: &agent.ToolCall{ID: b.ID, Name: b.Name, Arguments: string(b.Input)}}
 		case "server_tool_use":
-			// Built-in tools (web_search, bash, etc.)
-			ar.Content[i] = agent.AssistantMessageBlock{
-				Reasoning: &agent.ReasoningBlock{
-					Call: &agent.ToolCall{ID: b.ID, Name: b.Name, Arguments: string(b.Input)},
-				},
-			}
+			ar.Content[i] = agent.MessageBlock{Type: agent.MessageBlockTypeServerToolCall, ToolCall: &agent.ToolCall{ID: b.ID, Name: b.Name, Arguments: string(b.Input)}}
 		case "web_search_tool_result":
-			// TODO: Parse tool result content when SDK supports it
-			// For now, store as string representation
-			ar.Content[i] = agent.AssistantMessageBlock{
-				Reasoning: &agent.ReasoningBlock{Result: &agent.ToolResult{CallID: b.ToolUseID, Result: fmt.Sprintf("%v", b.Content)}},
-			}
+			ar.Content[i] = agent.MessageBlock{Type: agent.MessageBlockTypeToolResult, ToolResult: &agent.ToolResult{CallID: b.ToolUseID, Result: fmt.Sprintf("%v", b.Content)}}
 		}
 	}
 

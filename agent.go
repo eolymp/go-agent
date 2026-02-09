@@ -196,15 +196,15 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 
 	// verify approvals for tool calls
 	for _, block := range reply.Content {
-		if block.Call == nil {
+		if block.Type == MessageBlockTypeToolCall {
 			continue
 		}
 
-		switch a.approve(*block.Call) {
+		switch a.approve(*block.ToolCall) {
 		case ToolCallUndecided:
-			undecided = append(undecided, *block.Call)
+			undecided = append(undecided, *block.ToolCall)
 		case ToolCallApproved:
-			approved[block.Call.ID] = true
+			approved[block.ToolCall.ID] = true
 		default:
 			continue
 		}
@@ -221,11 +221,11 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 	eg.SetLimit(a.parallelism)
 
 	for index, block := range reply.Content {
-		if block.Call == nil {
+		if block.Type == MessageBlockTypeToolCall {
 			continue
 		}
 
-		index, call := index, *block.Call
+		index, call := index, *block.ToolCall
 		eg.Go(func() (err error) {
 			span, gctx := tracing.StartSpan(gctx, fmt.Sprintf("tool_call %q", call.Name), tracing.Kind(tracing.SpanTool), tracing.Input(json.RawMessage(call.Arguments)))
 			defer span.Close()

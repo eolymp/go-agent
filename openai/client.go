@@ -153,7 +153,8 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 	}
 
 	if text.Len() > 0 {
-		resp.Content = append(resp.Content, agent.AssistantMessageBlock{
+		resp.Content = append(resp.Content, agent.MessageBlock{
+			Type: agent.MessageBlockTypeText,
 			Text: text.String(),
 		})
 	}
@@ -167,7 +168,7 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 
 	for i := 0; i <= length; i++ {
 		if tc := calls[i]; tc != nil {
-			resp.Content = append(resp.Content, agent.AssistantMessageBlock{Call: tc})
+			resp.Content = append(resp.Content, agent.MessageBlock{Type: agent.MessageBlockTypeToolCall, ToolCall: tc})
 		}
 	}
 
@@ -262,20 +263,22 @@ func mapFinishReason(reason string) agent.FinishReason {
 }
 
 // fromOpenAIContent converts OpenAI content and tool calls to content blocks.
-func fromOpenAIContent(content string, toolCalls []openai.ChatCompletionMessageToolCall) []agent.AssistantMessageBlock {
-	var blocks []agent.AssistantMessageBlock
+func fromOpenAIContent(content string, toolCalls []openai.ChatCompletionMessageToolCall) []agent.MessageBlock {
+	var blocks []agent.MessageBlock
 
 	// Add text block if content is not empty
 	if content != "" {
-		blocks = append(blocks, agent.AssistantMessageBlock{
+		blocks = append(blocks, agent.MessageBlock{
+			Type: agent.MessageBlockTypeText,
 			Text: content,
 		})
 	}
 
 	// Add tool use blocks for each tool call
 	for _, call := range toolCalls {
-		blocks = append(blocks, agent.AssistantMessageBlock{
-			Call: &agent.ToolCall{
+		blocks = append(blocks, agent.MessageBlock{
+			Type: agent.MessageBlockTypeToolCall,
+			ToolCall: &agent.ToolCall{
 				ID:        call.ID,
 				Name:      call.Function.Name,
 				Arguments: call.Function.Arguments,
@@ -328,15 +331,16 @@ func assistantMessageToOpenAI(m agent.AssistantMessage) openai.ChatCompletionMes
 	// Extract text and tool use blocks
 	for _, block := range m.Content {
 		switch {
-		case block.Call != nil:
+		case block.Type == agent.MessageBlockTypeToolCall:
 			calls = append(calls, openai.ChatCompletionMessageToolCallParam{
-				ID: block.Call.ID,
+				ID: block.ToolCall.ID,
 				Function: openai.ChatCompletionMessageToolCallFunctionParam{
-					Name:      block.Call.Name,
-					Arguments: block.Call.Arguments,
+					Name:      block.ToolCall.Name,
+					Arguments: block.ToolCall.Arguments,
 				},
 			})
-		case block.Text != "":
+
+		case block.Type == agent.MessageBlockTypeText:
 			texts = append(texts, block.Text)
 		}
 	}
