@@ -354,7 +354,7 @@ func assistantMessageToOpenAI(m agent.AssistantMessage) openai.ChatCompletionMes
 	return openai.ChatCompletionMessageParamUnion{OfAssistant: &msg}
 }
 
-// toolResultToOpenAI converts a ToolResult to OpenAI format.
+// toolResultToOpenAI converts a Result to OpenAI format.
 func toolResultToOpenAI(c agent.ToolResult) openai.ChatCompletionMessageParamUnion {
 	return openai.ToolMessage(c.String(), c.CallID)
 }

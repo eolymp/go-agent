@@ -41,8 +41,18 @@ func (m AssistantMessage) Unmarshal(v any) error {
 }
 
 type AssistantMessageBlock struct {
-	Text string    `json:"text,omitempty"`
-	Call *ToolCall `json:"call,omitempty"`
+	Text      string          `json:"text,omitempty"`
+	Call      *ToolCall       `json:"call,omitempty"`
+	Reasoning *ReasoningBlock `json:"reasoning,omitempty"`
+}
+
+// ReasoningBlock represents extended thinking content from models with reasoning capabilities.
+// This includes thinking text, built-in tool usage (server_tool_use), and inline tool results.
+type ReasoningBlock struct {
+	Content   string      `json:"content,omitempty"`
+	Signature string      `json:"signature,omitempty"`
+	Call      *ToolCall   `json:"call,omitempty"`
+	Result    *ToolResult `json:"result,omitempty"`
 }
 
 type ToolCall struct {

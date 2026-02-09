@@ -74,8 +74,10 @@ func (f FinishReason) String() string {
 type Chunk struct {
 	Type         StreamChunkType
 	Index        int
-	Text         string
-	Call         *ToolCall
+	Text         string      // For text and thinking deltas
+	Call         *ToolCall   // For tool calls (both user and server tools)
+	Signature    string      // For thinking signature
+	Result       *ToolResult // For inline tool results
 	Usage        *CompletionUsage
 	FinishReason FinishReason
 }
@@ -83,13 +85,18 @@ type Chunk struct {
 type StreamChunkType int
 
 const (
-	StreamChunkTypeText             StreamChunkType = iota // a text delta
-	StreamChunkTypeToolCallStart                           // the start of a new tool call (just call id and tool name)
-	StreamChunkTypeToolCallDelta                           // a delta in tool call arguments
-	StreamChunkTypeToolCallExecute                         // a tool is being executed (comes from agent, not LLM)
-	StreamChunkTypeToolCallComplete                        // a tool has finished (comes from agent, not LLM)
-	StreamChunkTypeUsage                                   // usage statistics update
-	StreamChunkTypeFinish                                  // the completion has finished
+	StreamChunkTypeText                StreamChunkType = iota // a text delta
+	StreamChunkTypeToolCallStart                              // the start of a new tool call (just call id and tool name)
+	StreamChunkTypeToolCallDelta                              // a delta in tool call arguments
+	StreamChunkTypeToolCallExecute                            // a tool is being executed (comes from agent, not LLM)
+	StreamChunkTypeToolCallComplete                           // a tool has finished (comes from agent, not LLM)
+	StreamChunkTypeThinkingDelta                              // thinking content delta (extended reasoning)
+	StreamChunkTypeThinkingSignature                          // thinking signature for verification
+	StreamChunkTypeServerToolCallStart                        // built-in tool call start (web_search, bash, etc.)
+	StreamChunkTypeServerToolCallDelta                        // built-in tool call arguments delta
+	StreamChunkTypeToolResult                                 // inline tool result from server
+	StreamChunkTypeUsage                                      // usage statistics update
+	StreamChunkTypeFinish                                     // the completion has finished
 )
 
 func (s StreamChunkType) String() string {
@@ -100,6 +107,20 @@ func (s StreamChunkType) String() string {
 		return "tool_call_start"
 	case StreamChunkTypeToolCallDelta:
 		return "tool_call_delta"
+	case StreamChunkTypeToolCallExecute:
+		return "tool_call_execute"
+	case StreamChunkTypeToolCallComplete:
+		return "tool_call_complete"
+	case StreamChunkTypeThinkingDelta:
+		return "thinking_delta"
+	case StreamChunkTypeThinkingSignature:
+		return "thinking_signature"
+	case StreamChunkTypeServerToolCallStart:
+		return "server_tool_call_start"
+	case StreamChunkTypeServerToolCallDelta:
+		return "server_tool_call_delta"
+	case StreamChunkTypeToolResult:
+		return "tool_result"
 	case StreamChunkTypeUsage:
 		return "usage"
 	case StreamChunkTypeFinish:

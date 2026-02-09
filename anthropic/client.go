@@ -103,7 +103,11 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 
 		case "content_block_delta":
 			index := int(event.Index)
-			block := blocks[index]
+
+			block, ok := blocks[index]
+			if !ok {
+				continue
+			}
 
 			switch event.Delta.Type {
 			case "text_delta":
@@ -119,6 +123,10 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 				}
 
 			case "input_json_delta":
+				if block.Call == nil {
+					continue
+				}
+
 				block.Call.Arguments += event.Delta.PartialJSON
 				chunk := agent.Chunk{
 					Type:  agent.StreamChunkTypeToolCallDelta,
@@ -203,6 +211,8 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 
 			switch event.ContentBlock.Type {
 			case "text":
+			case "thinking":
+				block.Reasoning = &agent.ReasoningBlock{}
 			case "tool_use":
 				block.Call = &agent.ToolCall{
 					ID:   event.ContentBlock.ID,
@@ -218,13 +228,48 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 				if err := req.StreamCallback(ctx, chunk); err != nil {
 					return nil, err
 				}
+			case "server_tool_use":
+				block.Reasoning = &agent.ReasoningBlock{
+					Call: &agent.ToolCall{
+						ID:   event.ContentBlock.ID,
+						Name: event.ContentBlock.Name,
+					},
+				}
+
+				chunk := agent.Chunk{
+					Type:  agent.StreamChunkTypeServerToolCallStart,
+					Index: index,
+					Call:  &agent.ToolCall{ID: event.ContentBlock.ID, Name: event.ContentBlock.Name},
+				}
+
+				if err := req.StreamCallback(ctx, chunk); err != nil {
+					return nil, err
+				}
+			case "web_search_tool_result":
+				block.Reasoning = &agent.ReasoningBlock{
+					Result: &agent.ToolResult{CallID: event.ContentBlock.ToolUseID},
+				}
+
+				chunk := agent.Chunk{
+					Type:   agent.StreamChunkTypeToolResult,
+					Index:  index,
+					Result: &agent.ToolResult{CallID: event.ContentBlock.ToolUseID},
+				}
+
+				if err := req.StreamCallback(ctx, chunk); err != nil {
+					return nil, err
+				}
 			}
 
 			blocks[index] = block
 
 		case "content_block_delta":
 			index := int(event.Index)
-			block := blocks[index]
+
+			block, ok := blocks[index]
+			if !ok {
+				continue
+			}
 
 			switch event.Delta.Type {
 			case "text_delta":
@@ -239,20 +284,68 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 					return nil, err
 				}
 
-			case "input_json_delta":
-				block.Call.Arguments += event.Delta.PartialJSON
-				chunk := agent.Chunk{
-					Type:  agent.StreamChunkTypeToolCallDelta,
-					Index: index,
-					Call:  &agent.ToolCall{ID: block.Call.ID, Name: block.Call.Name, Arguments: event.Delta.PartialJSON},
+			case "thinking_delta":
+				if block.Reasoning != nil {
+					block.Reasoning.Content += event.Delta.Text
+
+					chunk := agent.Chunk{
+						Type:  agent.StreamChunkTypeThinkingDelta,
+						Index: index,
+						Text:  event.Delta.Text,
+					}
+
+					if err := req.StreamCallback(ctx, chunk); err != nil {
+						return nil, err
+					}
 				}
 
-				if err := req.StreamCallback(ctx, chunk); err != nil {
-					return nil, err
+			case "signature_delta":
+				if block.Reasoning != nil {
+					block.Reasoning.Signature = event.Delta.Signature
+
+					chunk := agent.Chunk{
+						Type:      agent.StreamChunkTypeThinkingSignature,
+						Index:     index,
+						Signature: event.Delta.Signature,
+					}
+
+					if err := req.StreamCallback(ctx, chunk); err != nil {
+						return nil, err
+					}
+				}
+
+			case "input_json_delta":
+				// Handle regular tool_use
+				if block.Call != nil {
+					block.Call.Arguments += event.Delta.PartialJSON
+					chunk := agent.Chunk{
+						Type:  agent.StreamChunkTypeToolCallDelta,
+						Index: index,
+						Call:  &agent.ToolCall{ID: block.Call.ID, Name: block.Call.Name, Arguments: event.Delta.PartialJSON},
+					}
+
+					if err := req.StreamCallback(ctx, chunk); err != nil {
+						return nil, err
+					}
+				}
+
+				// Handle server_tool_use (built-in tools)
+				if block.Reasoning != nil && block.Reasoning.Call != nil {
+					block.Reasoning.Call.Arguments += event.Delta.PartialJSON
+					chunk := agent.Chunk{
+						Type:  agent.StreamChunkTypeServerToolCallDelta,
+						Index: index,
+						Call:  &agent.ToolCall{ID: block.Reasoning.Call.ID, Name: block.Reasoning.Call.Name, Arguments: event.Delta.PartialJSON},
+					}
+
+					if err := req.StreamCallback(ctx, chunk); err != nil {
+						return nil, err
+					}
 				}
 			}
 
 		case "content_block_stop":
+
 		case "message_delta":
 			resp.Usage.CompletionTokens = int(event.Usage.OutputTokens)
 			resp.Usage.TotalTokens = resp.Usage.PromptTokens + resp.Usage.CompletionTokens
@@ -551,6 +644,30 @@ func toBetaAnthropicRequest(req agent.CompletionRequest) anthropic.BetaMessageNe
 					content[i] = anthropic.NewBetaToolUseBlock(block.Call.ID, input, block.Call.Name)
 				case block.Text != "":
 					content[i] = anthropic.NewBetaTextBlock(block.Text)
+				case block.Reasoning != nil && block.Reasoning.Content != "":
+					content[i] = anthropic.BetaContentBlockParamUnion{
+						OfThinking: &anthropic.BetaThinkingBlockParam{Type: "thinking", Thinking: block.Reasoning.Content},
+					}
+				case block.Reasoning != nil && block.Reasoning.Call != nil:
+					var input map[string]interface{}
+					_ = json.Unmarshal([]byte(block.Reasoning.Call.Arguments), &input)
+
+					content[i] = anthropic.BetaContentBlockParamUnion{
+						OfServerToolUse: &anthropic.BetaServerToolUseBlockParam{
+							Type:  "server_tool_use",
+							ID:    block.Reasoning.Call.ID,
+							Name:  anthropic.BetaServerToolUseBlockParamName(block.Reasoning.Call.Name),
+							Input: input,
+						},
+					}
+				case block.Reasoning != nil && block.Reasoning.Result != nil:
+					content[i] = anthropic.BetaContentBlockParamUnion{
+						OfWebSearchToolResult: &anthropic.BetaWebSearchToolResultBlockParam{
+							Type:      "web_search_tool_result",
+							ToolUseID: block.Reasoning.Result.CallID,
+							// TODO: Parse and set Content properly when SDK supports it
+						},
+					}
 				}
 			}
 
@@ -650,13 +767,24 @@ func fromBetaAnthropicResponse(resp *anthropic.BetaMessage) *agent.CompletionRes
 			ar.Content[i] = agent.AssistantMessageBlock{
 				Text: b.Text,
 			}
+		case "thinking":
+			ar.Content[i] = agent.AssistantMessageBlock{Reasoning: &agent.ReasoningBlock{Content: b.Text}}
 		case "tool_use":
 			ar.Content[i] = agent.AssistantMessageBlock{
-				Call: &agent.ToolCall{
-					ID:        b.ID,
-					Name:      b.Name,
-					Arguments: string(b.Input),
+				Call: &agent.ToolCall{ID: b.ID, Name: b.Name, Arguments: string(b.Input)},
+			}
+		case "server_tool_use":
+			// Built-in tools (web_search, bash, etc.)
+			ar.Content[i] = agent.AssistantMessageBlock{
+				Reasoning: &agent.ReasoningBlock{
+					Call: &agent.ToolCall{ID: b.ID, Name: b.Name, Arguments: string(b.Input)},
 				},
+			}
+		case "web_search_tool_result":
+			// TODO: Parse tool result content when SDK supports it
+			// For now, store as string representation
+			ar.Content[i] = agent.AssistantMessageBlock{
+				Reasoning: &agent.ReasoningBlock{Result: &agent.ToolResult{CallID: b.ToolUseID, Result: fmt.Sprintf("%v", b.Content)}},
 			}
 		}
 	}
