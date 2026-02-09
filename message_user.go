@@ -41,15 +41,15 @@ func (c ToolResult) String() string {
 
 type ToolError struct {
 	CallID string `json:"call_id"`
-	Error  error  `json:"error"`
+	Error  string `json:"error"`
 }
 
-func NewToolError(callID string, err error) ToolError {
+func NewToolError(callID string, err string) ToolError {
 	return ToolError{CallID: callID, Error: err}
 }
 
 func (c ToolError) isMessage() {}
 
 func (c ToolError) String() string {
-	return "ERROR: " + c.Error.Error()
+	return "ERROR: " + c.Error
 }

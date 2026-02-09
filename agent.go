@@ -251,7 +251,7 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 					return err
 				}
 
-				results[index] = NewToolError(call.ID, err)
+				results[index] = NewToolError(call.ID, err.Error())
 				return nil
 			}
 
