@@ -196,7 +196,7 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 
 	// verify approvals for tool calls
 	for _, block := range reply.Content {
-		if block.Type == MessageBlockTypeToolCall {
+		if block.Type != MessageBlockTypeToolCall {
 			continue
 		}
 
@@ -221,7 +221,7 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 	eg.SetLimit(a.parallelism)
 
 	for index, block := range reply.Content {
-		if block.Type == MessageBlockTypeToolCall {
+		if block.Type != MessageBlockTypeToolCall {
 			continue
 		}
 
