@@ -100,12 +100,12 @@ func WithOrchestratorTool(agents ...*Agent) Option {
 				}
 
 				m := NewStaticMemory()
-				
+
 				if err := m.Append(ctx, NewAssistantMessage(req.Context)); err != nil {
 					return nil, err
 				}
-				
-				if err := m.Append(ctx, NewUserMessage("You have to perform the task described below and call `complete_task` to communicate the results. \n\nThe task: " + task.Task)); err != nil {
+
+				if err := m.Append(ctx, NewUserMessage("You have to perform the task described below and call `complete_task` to communicate the results. \n\nThe task: "+task.Task)); err != nil {
 					return nil, err
 				}
 

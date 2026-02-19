@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -47,7 +48,7 @@ func (c *Completer) Complete(ctx context.Context, req agent.CompletionRequest) (
 			return nil, err
 		}
 
-		return fromBetaAnthropicResponse(resp), nil
+		return fromBetaAnthropicResponse(ctx, resp), nil
 	}
 
 	resp, err := c.client.Messages.New(ctx, toAnthropicRequest(req))
@@ -55,7 +56,7 @@ func (c *Completer) Complete(ctx context.Context, req agent.CompletionRequest) (
 		return nil, err
 	}
 
-	return fromAnthropicResponse(resp), nil
+	return fromAnthropicResponse(ctx, resp), nil
 }
 
 // stream handles streaming completion with callback support.
@@ -498,7 +499,7 @@ func toAnthropicRequest(req agent.CompletionRequest) anthropic.MessageNewParams 
 }
 
 // fromAnthropicResponse converts an Anthropic response to a universal CompletionResponse.
-func fromAnthropicResponse(resp *anthropic.Message) *agent.CompletionResponse {
+func fromAnthropicResponse(ctx context.Context, resp *anthropic.Message) *agent.CompletionResponse {
 	ar := &agent.CompletionResponse{
 		Model:        string(resp.Model),
 		Content:      make([]agent.MessageBlock, len(resp.Content)),
@@ -527,6 +528,8 @@ func fromAnthropicResponse(resp *anthropic.Message) *agent.CompletionResponse {
 					Arguments: string(b.Input),
 				},
 			}
+		default:
+			slog.WarnContext(ctx, fmt.Sprintf("unknown content block type %s", b.Type), "type", b.Type)
 		}
 	}
 
@@ -760,7 +763,7 @@ func toBetaAnthropicRequest(req agent.CompletionRequest) anthropic.BetaMessageNe
 	return params
 }
 
-func fromBetaAnthropicResponse(resp *anthropic.BetaMessage) *agent.CompletionResponse {
+func fromBetaAnthropicResponse(ctx context.Context, resp *anthropic.BetaMessage) *agent.CompletionResponse {
 	ar := &agent.CompletionResponse{
 		Model:        string(resp.Model),
 		Content:      make([]agent.MessageBlock, len(resp.Content)),
@@ -785,6 +788,8 @@ func fromBetaAnthropicResponse(resp *anthropic.BetaMessage) *agent.CompletionRes
 			ar.Content[i] = agent.MessageBlock{Type: agent.MessageBlockTypeServerToolCall, ToolCall: &agent.ToolCall{ID: b.ID, Name: b.Name, Arguments: string(b.Input)}}
 		case "web_search_tool_result":
 			ar.Content[i] = agent.MessageBlock{Type: agent.MessageBlockTypeToolResult, ToolResult: &agent.ToolResult{CallID: b.ToolUseID, Result: fmt.Sprintf("%v", b.Content)}}
+		default:
+			slog.WarnContext(ctx, fmt.Sprintf("unknown content block type %s", b.Type), "type", b.Type)
 		}
 	}
 
