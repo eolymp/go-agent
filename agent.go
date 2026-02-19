@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -227,7 +226,12 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 
 		index, call := index, *block.ToolCall
 		eg.Go(func() (err error) {
-			span, gctx := tracing.StartSpan(gctx, fmt.Sprintf("tool_call %q", call.Name), tracing.Kind(tracing.SpanTool), tracing.Input(json.RawMessage(call.Arguments)))
+			args := call.Arguments
+			if args == "" || args == "null" {
+				args = "{}"
+			}
+
+			span, gctx := tracing.StartSpan(gctx, fmt.Sprintf("tool_call %q", call.Name), tracing.Kind(tracing.SpanTool), tracing.Input(args))
 			defer span.Close()
 
 			if s, ok := a.memory.(Streamer); ok {
@@ -240,7 +244,7 @@ func (a Agent) call(ctx context.Context, reply AssistantMessage) error {
 			var result any
 
 			if approved[call.ID] {
-				result, err = a.tools.Call(gctx, call.Name, []byte(call.Arguments))
+				result, err = a.tools.Call(gctx, call.Name, []byte(args))
 			} else {
 				err = errors.New("tool call has been rejected by the user")
 			}

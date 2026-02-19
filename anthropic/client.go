@@ -447,7 +447,10 @@ func toAnthropicRequest(req agent.CompletionRequest) anthropic.MessageNewParams 
 				switch {
 				case block.Type == agent.MessageBlockTypeToolCall:
 					var input map[string]interface{}
-					_ = json.Unmarshal([]byte(block.ToolCall.Arguments), &input)
+					if block.ToolCall.Arguments != "" {
+						_ = json.Unmarshal([]byte(block.ToolCall.Arguments), &input)
+					}
+					
 					content[i] = anthropic.NewToolUseBlock(block.ToolCall.ID, input, block.ToolCall.Name)
 				case block.Type == agent.MessageBlockTypeText:
 					content[i] = anthropic.NewTextBlock(block.Text)
