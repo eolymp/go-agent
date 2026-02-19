@@ -254,27 +254,24 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 				if err := req.StreamCallback(ctx, chunk); err != nil {
 					return nil, err
 				}
-			case "web_search_tool_result":
+			case "web_search_tool_result", "text_editor_code_execution_tool_result", "bash_code_execution_tool_result":
 				block.Type = agent.MessageBlockTypeToolResult
 				block.ToolResult = &agent.ToolResult{CallID: event.ContentBlock.ToolUseID}
+
+				content := event.ContentBlock.Content
+
+				switch content.Type {
+				case "text_editor_code_execution_view_result":
+					block.ToolResult.Result = content.Content.OfString
+				default:
+					result, _ := json.Marshal(content)
+					block.ToolResult.Result = string(result)
+				}
 
 				chunk := agent.Chunk{
 					Type:   agent.StreamChunkTypeToolResult,
 					Index:  index,
-					Result: &agent.ToolResult{CallID: event.ContentBlock.ToolUseID},
-				}
-
-				if err := req.StreamCallback(ctx, chunk); err != nil {
-					return nil, err
-				}
-			case "text_editor_code_execution_tool_result", "bash_code_execution_tool_result":
-				block.Type = agent.MessageBlockTypeToolResult
-				block.ToolResult = &agent.ToolResult{CallID: event.ContentBlock.ToolUseID}
-
-				chunk := agent.Chunk{
-					Type:   agent.StreamChunkTypeToolResult,
-					Index:  index,
-					Result: &agent.ToolResult{CallID: event.ContentBlock.ToolUseID},
+					Result: block.ToolResult,
 				}
 
 				if err := req.StreamCallback(ctx, chunk); err != nil {
