@@ -267,6 +267,19 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 				if err := req.StreamCallback(ctx, chunk); err != nil {
 					return nil, err
 				}
+			case "text_editor_code_execution_tool_result", "bash_code_execution_tool_result":
+				block.Type = agent.MessageBlockTypeToolResult
+				block.ToolResult = &agent.ToolResult{CallID: event.ContentBlock.ToolUseID}
+
+				chunk := agent.Chunk{
+					Type:   agent.StreamChunkTypeToolResult,
+					Index:  index,
+					Result: &agent.ToolResult{CallID: event.ContentBlock.ToolUseID},
+				}
+
+				if err := req.StreamCallback(ctx, chunk); err != nil {
+					return nil, err
+				}
 			default:
 				slog.WarnContext(ctx, "Unknown content block type in block start event", "channel", "llm", "type", event.ContentBlock.Type)
 			}
@@ -804,6 +817,8 @@ func fromBetaAnthropicResponse(ctx context.Context, resp *anthropic.BetaMessage)
 		case "server_tool_use":
 			ar.Content[i] = agent.MessageBlock{Type: agent.MessageBlockTypeServerToolCall, ToolCall: &agent.ToolCall{ID: b.ID, Name: b.Name, Arguments: string(b.Input)}}
 		case "web_search_tool_result":
+			ar.Content[i] = agent.MessageBlock{Type: agent.MessageBlockTypeToolResult, ToolResult: &agent.ToolResult{CallID: b.ToolUseID, Result: fmt.Sprintf("%v", b.Content)}}
+		case "text_editor_code_execution_tool_result", "bash_code_execution_tool_result":
 			ar.Content[i] = agent.MessageBlock{Type: agent.MessageBlockTypeToolResult, ToolResult: &agent.ToolResult{CallID: b.ToolUseID, Result: fmt.Sprintf("%v", b.Content)}}
 		default:
 			slog.WarnContext(ctx, "Unknown content block type", "channel", "llm", "type", b.Type)
