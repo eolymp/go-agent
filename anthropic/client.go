@@ -655,7 +655,10 @@ func toBetaAnthropicRequest(req agent.CompletionRequest) anthropic.BetaMessageNe
 				switch block.Type {
 				case agent.MessageBlockTypeToolCall:
 					var input map[string]interface{}
-					_ = json.Unmarshal([]byte(block.ToolCall.Arguments), &input)
+					if block.ToolCall.Arguments != "" {
+						_ = json.Unmarshal([]byte(block.ToolCall.Arguments), &input)
+					}
+
 					content[i] = anthropic.NewBetaToolUseBlock(block.ToolCall.ID, input, block.ToolCall.Name)
 				case agent.MessageBlockTypeText:
 					content[i] = anthropic.NewBetaTextBlock(block.Text)
@@ -665,7 +668,9 @@ func toBetaAnthropicRequest(req agent.CompletionRequest) anthropic.BetaMessageNe
 					}
 				case agent.MessageBlockTypeServerToolCall:
 					var input map[string]interface{}
-					_ = json.Unmarshal([]byte(block.ToolCall.Arguments), &input)
+					if block.ToolCall.Arguments != "" {
+						_ = json.Unmarshal([]byte(block.ToolCall.Arguments), &input)
+					}
 
 					content[i] = anthropic.BetaContentBlockParamUnion{
 						OfServerToolUse: &anthropic.BetaServerToolUseBlockParam{
