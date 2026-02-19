@@ -76,7 +76,6 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 			resp.Model = string(event.Message.Model)
 			resp.Usage.PromptTokens = int(event.Message.Usage.InputTokens)
 			resp.Usage.CachedPromptTokens = int(event.Message.Usage.CacheReadInputTokens)
-
 		case "content_block_start":
 			index := int(event.Index)
 			block := &agent.MessageBlock{}
@@ -100,10 +99,11 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 				if err := req.StreamCallback(ctx, chunk); err != nil {
 					return nil, err
 				}
+			default:
+				slog.WarnContext(ctx, "Unknown content block type", "channel", "llm", "type", event.ContentBlock.Type)
 			}
 
 			blocks[index] = block
-
 		case "content_block_delta":
 			index := int(event.Index)
 
@@ -128,7 +128,6 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 				if err := req.StreamCallback(ctx, chunk); err != nil {
 					return nil, err
 				}
-
 			case "input_json_delta":
 				if block.Type != agent.MessageBlockTypeToolCall {
 					continue
@@ -144,8 +143,9 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 				if err := req.StreamCallback(ctx, chunk); err != nil {
 					return nil, err
 				}
+			default:
+				slog.WarnContext(ctx, "Unknown event delta type", "channel", "llm", "type", event.Delta.Type)
 			}
-
 		case "content_block_stop":
 		case "message_delta":
 			resp.Usage.CompletionTokens = int(event.Usage.OutputTokens)
@@ -163,7 +163,6 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 			if err := req.StreamCallback(ctx, chunk); err != nil {
 				return nil, err
 			}
-
 		case "message_stop":
 			reason := resp.FinishReason
 			chunk := agent.Chunk{
@@ -174,6 +173,8 @@ func (c *Completer) stream(ctx context.Context, req agent.CompletionRequest) (*a
 			if err := req.StreamCallback(ctx, chunk); err != nil {
 				return nil, err
 			}
+		default:
+			slog.WarnContext(ctx, "Unknown event type", "channel", "llm", "type", event.Type)
 		}
 	}
 
@@ -266,6 +267,8 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 				if err := req.StreamCallback(ctx, chunk); err != nil {
 					return nil, err
 				}
+			default:
+				slog.WarnContext(ctx, "Unknown content block type in block start event", "channel", "llm", "type", event.ContentBlock.Type)
 			}
 
 			blocks[index] = block
@@ -353,6 +356,9 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 						return nil, err
 					}
 				}
+
+			default:
+				slog.WarnContext(ctx, "Unknown event delta type", "channel", "llm", "type", event.Delta.Type)
 			}
 
 		case "content_block_stop":
@@ -384,6 +390,9 @@ func (c *Completer) betaStream(ctx context.Context, req agent.CompletionRequest)
 			if err := req.StreamCallback(ctx, chunk); err != nil {
 				return nil, err
 			}
+
+		default:
+			slog.WarnContext(ctx, "Unknown event type", "channel", "llm", "type", event.ContentBlock.Type)
 		}
 	}
 
@@ -450,7 +459,7 @@ func toAnthropicRequest(req agent.CompletionRequest) anthropic.MessageNewParams 
 					if block.ToolCall.Arguments != "" {
 						_ = json.Unmarshal([]byte(block.ToolCall.Arguments), &input)
 					}
-					
+
 					content[i] = anthropic.NewToolUseBlock(block.ToolCall.ID, input, block.ToolCall.Name)
 				case block.Type == agent.MessageBlockTypeText:
 					content[i] = anthropic.NewTextBlock(block.Text)
@@ -532,7 +541,7 @@ func fromAnthropicResponse(ctx context.Context, resp *anthropic.Message) *agent.
 				},
 			}
 		default:
-			slog.WarnContext(ctx, fmt.Sprintf("unknown content block type %s", b.Type), "type", b.Type)
+			slog.WarnContext(ctx, "Unknown content block type", "channel", "llm", "type", b.Type)
 		}
 	}
 
@@ -797,7 +806,7 @@ func fromBetaAnthropicResponse(ctx context.Context, resp *anthropic.BetaMessage)
 		case "web_search_tool_result":
 			ar.Content[i] = agent.MessageBlock{Type: agent.MessageBlockTypeToolResult, ToolResult: &agent.ToolResult{CallID: b.ToolUseID, Result: fmt.Sprintf("%v", b.Content)}}
 		default:
-			slog.WarnContext(ctx, fmt.Sprintf("unknown content block type %s", b.Type), "type", b.Type)
+			slog.WarnContext(ctx, "Unknown content block type", "channel", "llm", "type", b.Type)
 		}
 	}
 

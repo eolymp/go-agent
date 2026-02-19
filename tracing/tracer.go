@@ -87,9 +87,9 @@ func (t *Tracer) run() {
 			select {
 			case <-ticket.C:
 				if err := t.send(batch); err != nil {
-					slog.Warn("Unable to upload tracing span buffer", "error", err)
+					slog.Warn("Unable to upload tracing span buffer", "channel", "llm", "error", err)
 
-					if strings.Contains(err.Error(), "400 Bad Request") {
+					if strings.Contains(err.Error(), "400 Bad Request") || strings.Contains(err.Error(), "error calling MarshalJSON") {
 						batch = nil
 					}
 
