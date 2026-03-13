@@ -1,5 +1,7 @@
 github.com/anthropics/anthropic-sdk-go v1.25.0 h1:5oInQrs4g+ASNYrkZmALoCTpq0p7SYnNzKYxzJhDPOY=
 github.com/anthropics/anthropic-sdk-go v1.25.0/go.mod h1:WTz31rIUHUHqai2UslPpw5CwXrQP3geYBioRV4WOLvE=
+github.com/anthropics/anthropic-sdk-go v1.26.0 h1:oUTzFaUpAevfuELAP1sjL6CQJ9HHAfT7CoSYSac11PY=
+github.com/anthropics/anthropic-sdk-go v1.26.0/go.mod h1:qUKmaW+uuPB64iy1l+4kOSvaLqPXnHTTBKH6RVZ7q5Q=
 github.com/braintrustdata/braintrust-go v0.8.0 h1:5OHO8L3vFI+mDAyELFS/4DShTT/8y3p8t5SH1Y/dr30=
 github.com/braintrustdata/braintrust-go v0.8.0/go.mod h1:LlBX6quCfahb603z8YHapGHhZ0nqPaxEFoyTP4DK62g=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=

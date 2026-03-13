@@ -445,6 +445,10 @@ func toAnthropicRequest(req agent.CompletionRequest) anthropic.MessageNewParams 
 		params.TopK = param.NewOpt(int64(*req.TopK))
 	}
 
+	if req.UseCache != nil && *req.UseCache {
+		params.CacheControl = anthropic.NewCacheControlEphemeralParam()
+	}
+
 	// Convert messages - separate system messages from conversation messages
 	for _, msg := range req.Messages {
 		switch m := msg.(type) {
@@ -627,6 +631,10 @@ func toBetaAnthropicRequest(req agent.CompletionRequest) anthropic.BetaMessageNe
 
 	if req.TopK != nil {
 		params.TopK = param.NewOpt(int64(*req.TopK))
+	}
+
+	if req.UseCache != nil && *req.UseCache {
+		params.CacheControl = anthropic.NewBetaCacheControlEphemeralParam()
 	}
 
 	if len(req.Betas) > 0 {

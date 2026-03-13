@@ -50,8 +50,8 @@ func WithPrompter(prompter *Prompter, slug string) agent.Option {
 			opts = append(opts, agent.WithTopK(*prompt.TopK))
 		}
 
-		if prompt.UseCache != nil {
-			opts = append(opts, agent.WithUseCache(*prompt.UseCache))
+		if prompt.UseCache != nil && !*prompt.UseCache {
+			opts = append(opts, agent.WithoutCache())
 		}
 
 		if prompt.Reasoning != nil {

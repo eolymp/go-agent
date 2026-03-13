@@ -35,6 +35,7 @@ type Agent struct {
 }
 
 func New(name string, opts ...Option) *Agent {
+	yes := true
 	a := &Agent{
 		completer:   defaultCompleter,
 		name:        name,
@@ -42,6 +43,7 @@ func New(name string, opts ...Option) *Agent {
 		parallelism: 5,
 		tools:       NewStaticToolset(),
 		memory:      NewStaticMemory(),
+		useCache:    &yes,
 	}
 
 	for _, opt := range opts {

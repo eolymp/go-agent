@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go/option"
-	agent "github.com/eolymp/go-agent"
+	"github.com/eolymp/go-agent"
 	"github.com/eolymp/go-agent/anthropic"
 	"github.com/google/jsonschema-go/jsonschema"
 )

@@ -183,9 +183,10 @@ func WithTopK(topK int32) Option {
 	}
 }
 
-func WithUseCache(useCache bool) Option {
+func WithoutCache() Option {
+	no := false
 	return func(a *Agent) {
-		a.useCache = &useCache
+		a.useCache = &no
 	}
 }
 
